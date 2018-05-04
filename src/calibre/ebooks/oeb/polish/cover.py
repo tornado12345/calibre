@@ -115,6 +115,7 @@ def is_raster_image(media_type):
     return media_type and media_type.lower() in {
         'image/png', 'image/jpeg', 'image/jpg', 'image/gif'}
 
+
 COVER_TYPES = {
     'coverimagestandard', 'other.ms-coverimage-standard',
     'other.ms-titleimage-standard', 'other.ms-titleimage',
@@ -253,8 +254,8 @@ def mark_as_titlepage(container, name, move_to_start=True):
 def find_cover_page(container):
     'Find a document marked as a cover in the OPF'
     ver = container.opf_version_parsed
+    mm = container.mime_map
     if ver.major < 3:
-        mm = container.mime_map
         guide_type_map = container.guide_type_map
         for ref_type, name in guide_type_map.iteritems():
             if ref_type.lower() == 'cover' and mm.get(name, '').lower() in OEB_DOCS:
@@ -262,6 +263,10 @@ def find_cover_page(container):
     else:
         for name in container.manifest_items_with_property('calibre:title-page'):
             return name
+        from calibre.ebooks.oeb.polish.toc import get_landmarks
+        for landmark in get_landmarks(container):
+            if landmark['type'] == 'cover' and mm.get(landmark['dest'], '').lower() in OEB_DOCS:
+                return landmark['dest']
 
 
 def find_cover_image_in_page(container, cover_page):
@@ -301,9 +306,11 @@ def clean_opf(container):
             name = gtm.get(typ, None)
             if name and name in container.name_path_map:
                 yield name
-    removed_names = container.apply_unique_properties(None, 'cover-image', 'calibre:title-page')[0]
-    for name in removed_names:
-        yield name
+    ver = container.opf_version_parsed
+    if ver.major > 2:
+        removed_names = container.apply_unique_properties(None, 'cover-image', 'calibre:title-page')[0]
+        for name in removed_names:
+            yield name
     container.dirty(container.opf_name)
 
 
@@ -345,11 +352,14 @@ def create_epub_cover(container, cover_path, existing_image, options=None):
     if no_svg:
         style = 'style="height: 100%%"'
         templ = CoverManager.NONSVG_TEMPLATE.replace('__style__', style)
+        has_svg = False
     else:
         if callable(cover_path):
             templ = (options or {}).get('template', CoverManager.SVG_TEMPLATE)
+            has_svg = 'xlink:href' in templ
         else:
             width, height = 600, 800
+            has_svg = True
             try:
                 if existing_image:
                     width, height = identify(container.raw_data(existing_image, decode=False))[1:]
@@ -400,6 +410,8 @@ def create_epub_cover(container, cover_path, existing_image, options=None):
     else:
         container.apply_unique_properties(raster_cover, 'cover-image')
         container.apply_unique_properties(titlepage, 'calibre:title-page')
+        if has_svg:
+            container.add_properties(titlepage, 'svg')
 
     return raster_cover, titlepage
 
@@ -429,7 +441,7 @@ def set_epub_cover(container, cover_path, report, options=None):
     # pages and handle possibly removing stylesheets referred to by them.
 
     spine_items = tuple(container.spine_items)
-    if cover_page is None:
+    if cover_page is None and spine_items:
         # Check if the first item in the spine is a simple cover wrapper
         candidate = container.abspath_to_name(spine_items[0])
         if find_cover_image_in_page(container, candidate) is not None:

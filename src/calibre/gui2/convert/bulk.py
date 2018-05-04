@@ -44,6 +44,7 @@ class BulkConfig(Config):
             'of using the defaults specified in the Preferences'))
 
         self.output_formats.currentIndexChanged[str].connect(self.setup_pipeline)
+        self.groups.setSpacing(5)
         self.groups.activated[(QModelIndex)].connect(self.show_pane)
         self.groups.clicked[(QModelIndex)].connect(self.show_pane)
         self.groups.entered[(QModelIndex)].connect(self.show_group_help)
@@ -78,7 +79,7 @@ class BulkConfig(Config):
             return cls(self.stack, self.plumber.get_option_by_name,
                 self.plumber.get_option_help, self.db)
 
-        self.setWindowTitle(_('Bulk Convert'))
+        self.setWindowTitle(_('Bulk convert'))
         lf = widget_factory(LookAndFeelWidget)
         hw = widget_factory(HeuristicsWidget)
         sr = widget_factory(SearchAndReplaceWidget)
@@ -142,5 +143,3 @@ class BulkConfig(Config):
             gprefs['convert_bulk_dialog_geom'] = \
                 bytearray(self.saveGeometry())
         return QDialog.done(self, r)
-
-

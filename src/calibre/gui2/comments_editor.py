@@ -72,6 +72,7 @@ class EditorWidget(QWebView):  # {{{
 
     def __init__(self, parent=None):
         QWebView.__init__(self, parent)
+        self.base_url = None
         self._parent = weakref.ref(parent)
         self.readonly = False
 
@@ -115,9 +116,9 @@ class EditorWidget(QWebView):  # {{{
                 ('Paste', 'paste', 'edit-paste', _('Paste'), False),
                 ('Cut', 'cut', 'edit-cut', _('Cut'), False),
                 ('Indent', 'indent', 'format-indent-more',
-                    _('Increase Indentation'), False),
+                    _('Increase indentation'), False),
                 ('Outdent', 'outdent', 'format-indent-less',
-                    _('Decrease Indentation'), False),
+                    _('Decrease indentation'), False),
                 ('SelectAll', 'select_all', 'edit-select-all',
                     _('Select all'), False),
             ]:
@@ -163,9 +164,13 @@ class EditorWidget(QWebView):  # {{{
 
         self.action_insert_link = QAction(QIcon(I('insert-link.png')),
                 _('Insert link or image'), self)
+        self.action_insert_hr = QAction(QIcon(I('format-text-hr.png')),
+                _('Insert separator'), self)
         self.action_insert_link.triggered.connect(self.insert_link)
+        self.action_insert_hr.triggered.connect(self.insert_hr)
         self.pageAction(QWebPage.ToggleBold).changed.connect(self.update_link_action)
         self.action_insert_link.setEnabled(False)
+        self.action_insert_hr.setEnabled(False)
         self.action_clear = QAction(QIcon(I('trash.png')), _('Clear'), self)
         self.action_clear.triggered.connect(self.clear_text)
 
@@ -177,8 +182,9 @@ class EditorWidget(QWebView):  # {{{
         self.set_readonly(False)
 
     def update_link_action(self):
-        wac = self.pageAction(QWebPage.ToggleBold)
-        self.action_insert_link.setEnabled(wac.isEnabled())
+        wac = self.pageAction(QWebPage.ToggleBold).isEnabled()
+        self.action_insert_link.setEnabled(wac)
+        self.action_insert_hr.setEnabled(wac)
 
     def set_readonly(self, what):
         self.readonly = what
@@ -209,6 +215,9 @@ class EditorWidget(QWebView):  # {{{
         if col.isValid():
             self.exec_command('hiliteColor', unicode(col.name()))
 
+    def insert_hr(self, *args):
+        self.exec_command('insertHTML', '<hr>')
+
     def insert_link(self, *args):
         link, name, is_image = self.ask_link()
         if not link:
@@ -235,6 +244,7 @@ class EditorWidget(QWebView):  # {{{
         d = QDialog(self)
         d.setWindowTitle(_('Create link'))
         l = QFormLayout()
+        l.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         d.setLayout(l)
         d.url = QLineEdit(d)
         d.name = QLineEdit(d)
@@ -361,9 +371,16 @@ class EditorWidget(QWebView):  # {{{
             return ans
 
         def fset(self, val):
-            self.setHtml(val)
+            if self.base_url is None:
+                self.setHtml(val)
+            else:
+                self.setHtml(val, self.base_url)
             self.set_font_style()
         return property(fget=fget, fset=fset)
+
+    def set_base_url(self, qurl):
+        self.base_url = qurl
+        self.setHtml('', self.base_url)
 
     def set_html(self, val, allow_undo=True):
         if not allow_undo or self.readonly:
@@ -641,6 +658,7 @@ class Editor(QWidget):  # {{{
             t = getattr(self, 'toolbar%d'%i)
             t.setIconSize(QSize(18, 18))
         self.editor = EditorWidget(self)
+        self.set_base_url = self.editor.set_base_url
         self.set_html = self.editor.set_html
         self.tabs = QTabWidget(self)
         self.tabs.setTabPosition(self.tabs.South)
@@ -664,7 +682,7 @@ class Editor(QWidget):  # {{{
         l.addWidget(self.editor)
         self._layout.addWidget(self.tabs)
         self.tabs.addTab(self.wyswyg, _('N&ormal view'))
-        self.tabs.addTab(self.code_edit, _('&HTML Source'))
+        self.tabs.addTab(self.code_edit, _('&HTML source'))
         self.tabs.currentChanged[int].connect(self.change_tab)
         self.highlighter = Highlighter(self.code_edit.document())
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -701,8 +719,10 @@ class Editor(QWidget):  # {{{
 
         self.toolbar2.addAction(self.editor.action_block_style)
         w = self.toolbar2.widgetForAction(self.editor.action_block_style)
-        w.setPopupMode(w.InstantPopup)
+        if hasattr(w, 'setPopupMode'):
+            w.setPopupMode(w.InstantPopup)
         self.toolbar2.addAction(self.editor.action_insert_link)
+        self.toolbar2.addAction(self.editor.action_insert_hr)
         # }}}
 
         # toolbar3 {{{

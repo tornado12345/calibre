@@ -23,7 +23,7 @@ class EB600(USBMS):
 
     name           = 'Netronix EB600 Device Interface'
     gui_name       = 'Netronix EB600'
-    description    = _('Communicate with the EB600 eBook reader.')
+    description    = _('Communicate with the EB600 e-book reader.')
     author         = 'Kovid Goyal'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -305,7 +305,7 @@ class ELONEX(EB600):
 class POCKETBOOK301(USBMS):
 
     name           = 'PocketBook 301 Device Interface'
-    description    = _('Communicate with the PocketBook 301 reader.')
+    description    = _('Communicate with the PocketBook 301 Reader.')
     author         = 'Kovid Goyal'
     supported_platforms = ['windows', 'osx', 'linux']
     FORMATS = ['epub', 'fb2', 'prc', 'mobi', 'pdf', 'djvu', 'rtf', 'chm', 'txt']
@@ -398,6 +398,22 @@ class POCKETBOOK701(USBMS):
         return drives
 
 
+class POCKETBOOK740(USBMS):
+
+    name = 'PocketBook 701 Device Interface'
+    description = _('Communicate with the PocketBook 740')
+    supported_platforms = ['windows', 'osx', 'linux']
+    FORMATS = ['epub', 'fb2', 'prc', 'mobi', 'pdf', 'djvu', 'rtf', 'chm',
+            'doc', 'tcr', 'txt']
+    EBOOK_DIR_MAIN = 'books'
+    SUPPORTS_SUB_DIRS = True
+    SCAN_FROM_ROOT = True
+
+    VENDOR_ID   = [0x18d1]
+    PRODUCT_ID  = [0x0001]
+    BCD         = [0x0101]
+
+
 class PI2(EB600):
 
     name           = 'Infibeam Pi2 Device Interface'
@@ -415,4 +431,3 @@ class PI2(EB600):
     WINDOWS_CARD_A_MEM = 'INFIBEAM_PI'
 
     DELETE_EXTS = ['.rec']
-

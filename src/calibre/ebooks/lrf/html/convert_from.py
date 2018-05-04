@@ -603,7 +603,7 @@ class HTMLConverter(object):
                hasattr(target.parent, 'objId'):
                 self.book.addTocEntry(ascii_text, tb)
             else:
-                self.log.debug(_("Cannot add link %s to TOC")%ascii_text)
+                self.log.debug("Cannot add link %s to TOC"%ascii_text)
 
         def get_target_block(fragment, targets):
             '''Return the correct block for the <a name> element'''
@@ -1978,7 +1978,4 @@ def try_opf(path, options, logger):
         if not getattr(options, 'toc', None):
             options.toc   = opf.toc
     except Exception:
-        logger.exception(_('Failed to process opf file'))
-
-
-
+        logger.exception(_('Failed to process OPF file'))

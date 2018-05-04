@@ -28,7 +28,7 @@ from calibre.library.coloring import (Rule, conditionable_columns,
 from calibre.utils.localization import lang_map
 from calibre.utils.icu import lower
 
-all_columns_string = _('All Columns')
+all_columns_string = _('All columns')
 
 icon_rule_kinds = [(_('icon with text'), 'icon'),
                    (_('icon with no text'), 'icon_only'),
@@ -79,6 +79,8 @@ class ConditionEditor(QWidget):  # {{{
             'single'   : (
                 (_('is'), 'is'),
                 (_('is not'), 'is not'),
+                (_('contains'), 'contains'),
+                (_('does not contain'), 'does not contain'),
                 (_('matches pattern'), 'matches pattern'),
                 (_('does not match pattern'), 'does not match pattern'),
                 (_('is set'), 'is set'),
@@ -298,7 +300,7 @@ class RuleEditor(QDialog):  # {{{
             rule_text = _('column icon')
         elif pref_name == 'cover_grid_icon_rules':
             self.rule_kind = 'emblem'
-            rule_text = _('cover grid emblem')
+            rule_text = _('Cover grid emblem')
 
         self.setWindowIcon(QIcon(I('format-fill-color.png')))
         self.setWindowTitle(_('Create/edit a {0} rule').format(rule_text))
@@ -371,7 +373,7 @@ class RuleEditor(QDialog):  # {{{
             create_filename_box()
 
             vb = QVBoxLayout()
-            self.multiple_icon_cb = QCheckBox(_('Choose more than one icon'))
+            self.multiple_icon_cb = QCheckBox(_('Choose &more than one icon'))
             vb.addWidget(self.multiple_icon_cb)
             self.update_filename_box()
             self.multiple_icon_cb.clicked.connect(self.multiple_box_clicked)
@@ -395,7 +397,7 @@ class RuleEditor(QDialog):  # {{{
         l.addWidget(sa, 4, 0, 1, 8)
 
         self.add_button = b = QPushButton(QIcon(I('plus.png')),
-                _('Add another condition'))
+                _('Add &another condition'))
         l.addWidget(b, 5, 0, 1, 8)
         b.clicked.connect(self.add_blank_condition)
 
@@ -409,9 +411,10 @@ class RuleEditor(QDialog):  # {{{
         bb.rejected.connect(self.reject)
         l.addWidget(bb, 7, 0, 1, 8)
         if self.rule_kind != 'color':
-            self.remove_button = b = bb.addButton(_('Remove image'), bb.ActionRole)
+            self.remove_button = b = bb.addButton(_('&Remove icon'), bb.ActionRole)
             b.setIcon(QIcon(I('minus.png')))
             b.setMenu(QMenu())
+            b.setToolTip('<p>' + _('Remove a previously added icon. Note that doing so will cause rules that use it to stop working.'))
             self.update_remove_button()
 
         self.conditions_widget = QWidget(self)
@@ -495,7 +498,7 @@ class RuleEditor(QDialog):  # {{{
         self.color_label.setText('''
             <span style="color: {c}; background-color: {bg1}">&nbsp;{st}&nbsp;</span>
             <span style="color: {c}; background-color: {bg2}">&nbsp;{st}&nbsp;</span>
-            '''.format(c=c, bg1=bg1, bg2=bg2, st=_('Sample Text')))
+            '''.format(c=c, bg1=bg1, bg2=bg2, st=_('Sample text')))
 
     def sanitize_icon_file_name(self, icon_path):
         n = lower(sanitize_file_name_unicode(
@@ -799,17 +802,17 @@ class RulesModel(QAbstractListModel):  # {{{
         if not isinstance(rule, Rule):
             if kind == 'color':
                 return _('''
-                <p>Advanced Rule for column <b>%(col)s</b>:
+                <p>Advanced rule for column <b>%(col)s</b>:
                 <pre>%(rule)s</pre>
                 ''')%dict(col=col, rule=prepare_string_for_xml(rule))
             elif self.rule_kind == 'emblem':
                 return _('''
-                <p>Advanced Rule:
+                <p>Advanced rule:
                 <pre>%(rule)s</pre>
                 ''')%dict(rule=prepare_string_for_xml(rule))
             else:
                 return _('''
-                <p>Advanced Rule: set <b>%(typ)s</b> for column <b>%(col)s</b>:
+                <p>Advanced rule: set <b>%(typ)s</b> for column <b>%(col)s</b>:
                 <pre>%(rule)s</pre>
                 ''')%dict(col=col,
                           typ=trans_kind,
@@ -887,10 +890,10 @@ class EditRules(QWidget):  # {{{
         l1.setWordWrap(True)
         l.addWidget(l1, l.rowCount(), 0, 1, 2)
 
-        self.add_button = QPushButton(QIcon(I('plus.png')), _('Add Rule'),
+        self.add_button = QPushButton(QIcon(I('plus.png')), _('&Add rule'),
                 self)
         self.remove_button = QPushButton(QIcon(I('minus.png')),
-                _('Remove Rule(s)'), self)
+                _('&Remove rule(s)'), self)
         self.add_button.clicked.connect(self.add_rule)
         self.remove_button.clicked.connect(self.remove_rule)
         l.addWidget(self.add_button, l.rowCount(), 0)
@@ -920,7 +923,7 @@ class EditRules(QWidget):  # {{{
         l.setRowStretch(l.rowCount() - 1, 10)
 
         self.add_advanced_button = b = QPushButton(QIcon(I('plus.png')),
-                _('Add Advanced Rule'), self)
+                _('Add ad&vanced rule'), self)
         b.clicked.connect(self.add_advanced)
         self.hb = hb = QHBoxLayout()
         l.addLayout(hb, l.rowCount(), 0, 1, 2)
@@ -945,20 +948,20 @@ class EditRules(QWidget):  # {{{
             text = _(
                 'You can control the color of columns in the'
                 ' book list by creating "rules" that tell calibre'
-                ' what color to use. Click the Add Rule button below'
+                ' what color to use. Click the "Add rule" button below'
                 ' to get started.<p>You can <b>change an existing rule</b> by'
                 ' double clicking it.')
         elif pref_name == 'column_icon_rules':
             text = _(
                 'You can add icons to columns in the'
                 ' book list by creating "rules" that tell calibre'
-                ' what icon to use. Click the Add Rule button below'
+                ' what icon to use. Click the "Add rule" button below'
                 ' to get started.<p>You can <b>change an existing rule</b> by'
                 ' double clicking it.')
         elif pref_name == 'cover_grid_icon_rules':
             text = _('You can add emblems (small icons) that are displayed on the side of covers'
-                     ' in the cover grid by creating "rules" that tell calibre'
-                ' what image to use. Click the Add Rule button below'
+                     ' in the Cover grid by creating "rules" that tell calibre'
+                ' what image to use. Click the "Add rule" button below'
                 ' to get started.<p>You can <b>change an existing rule</b> by'
                 ' double clicking it.')
             self.enabled.setVisible(True)
@@ -967,7 +970,7 @@ class EditRules(QWidget):  # {{{
             self.enabled.stateChanged.connect(self.enabled_toggled)
             self.enabled.setToolTip(_(
                 'If checked, you can tell calibre to display icons of your choosing'
-                ' next to the covers shown in the cover grid, controlled by the'
+                ' next to the covers shown in the Cover grid, controlled by the'
                 ' metadata of the book.'))
             self.enabled_toggled()
         self.l1.setText('<p>'+ text)

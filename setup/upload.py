@@ -115,7 +115,7 @@ def get_sourceforge_data():
 
 def get_fosshub_data():
     with open(os.environ['PENV'] + '/fosshub', 'rb') as f:
-        return f.read().decode('utf-8')
+        return f.read().decode('utf-8').strip()
 
 
 def send_data(loc):
@@ -360,6 +360,8 @@ class UploadToServer(Command):  # {{{
     description = 'Upload miscellaneous data to calibre server'
 
     def run(self, opts):
+        check_call('scp translations/website/locales.zip main:/srv/main/'.split())
+        check_call('ssh main /apps/static/generate.py'.split())
         src_file = glob.glob('dist/calibre-*.tar.xz')[0]
         upload_signatures()
         check_call(['git', 'push'])
@@ -376,32 +378,6 @@ class UploadToServer(Command):  # {{{
             'ssh main /usr/local/bin/update-calibre-version.py %s && /usr/local/bin/update-calibre-code.py && /apps/static/generate.py'
             % __version__
         ).split())
-
-
-# }}}
-
-# Testing {{{
-
-
-def write_files(fmap):
-    for f in fmap:
-        with open(f, 'wb') as f:
-            f.write(os.urandom(100))
-            f.write(b'a' * 1000000)
-    with open('fmap', 'wb') as fo:
-        for f, desc in fmap.iteritems():
-            fo.write('%s: %s\n' % (f, desc))
-
-
-def setup_installers():
-    ver = '0.0.1'
-    files = {
-        x.replace(__version__, ver): installer_description(x)
-        for x in installers()
-    }
-    tdir = mkdtemp()
-    os.chdir(tdir)
-    return tdir, files, ver
 
 
 # }}}

@@ -84,7 +84,7 @@ class Kindle(Device):
 
     output_profile = 'kindle'
     output_format  = 'MOBI'
-    name = 'Kindle Touch/1-4'
+    name = 'Kindle Basic (all models)'
     manufacturer = 'Amazon'
     id = 'kindle'
 
@@ -125,7 +125,7 @@ class KindleFire(KindleDX):
 class KindlePW(Kindle):
     name = 'Kindle PaperWhite'
     id = 'kindle_pw'
-    output_profile = 'kindle_pw'
+    output_profile = 'kindle_pw3'
 
 
 class KindleVoyage(Kindle):
@@ -559,9 +559,8 @@ class StanzaPage(QWizardPage, StanzaUI):
     def commit(self):
         p = self.set_port()
         if p is not None:
-            from calibre.library.server import server_config
-            c = server_config()
-            c.set('port', p)
+            from calibre.srv.opts import change_settings
+            change_settings(port=p)
 
     def set_port(self, *args):
         if not self.content_server.isChecked():
@@ -761,7 +760,10 @@ class LibraryPage(QWizardPage, LibraryUI):
         self.default_library_name = None
         if not lp:
             fname = _('Calibre Library')
-            base = os.path.expanduser(u'~')
+            try:
+                base = os.path.expanduser(u'~')
+            except ValueError:
+                base = QDir.homePath().replace('/', os.sep)
             if iswindows:
                 try:
                     x = winutil.special_folder_path(winutil.CSIDL_PERSONAL)
@@ -777,7 +779,10 @@ class LibraryPage(QWizardPage, LibraryUI):
                     os.makedirs(lp)
                 except:
                     traceback.print_exc()
-                    lp = os.path.expanduser(u'~')
+                    try:
+                        lp = os.path.expanduser(u'~')
+                    except ValueError:
+                        lp = QDir.homePath().replace('/', os.sep)
         self.location.setText(lp)
         # Hide the library location settings if we are a portable install
         for x in ('location', 'button_change', 'libloc_label1',
@@ -894,6 +899,7 @@ class Wizard(QWizard):
 def wizard(parent=None):
     w = Wizard(parent)
     return w
+
 
 if __name__ == '__main__':
     from calibre.gui2 import Application

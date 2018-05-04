@@ -10,6 +10,8 @@ import os, time, re
 from collections import defaultdict
 from future_builtins import map
 
+from calibre import prints
+from calibre.constants import iswindows, isosx, filesystem_encoding
 from calibre.ebooks import BOOK_EXTENSIONS
 
 
@@ -56,6 +58,7 @@ def filter_filename(compiled_rules, filename):
         if q(filename):
             return action
 
+
 _metadata_extensions = None
 
 
@@ -68,8 +71,20 @@ def metadata_extensions():
     return _metadata_extensions
 
 
+if iswindows or isosx:
+    unicode_listdir = os.listdir
+else:
+    def unicode_listdir(root):
+        root = root.encode(filesystem_encoding)
+        for x in os.listdir(root):
+            try:
+                yield x.decode(filesystem_encoding)
+            except UnicodeDecodeError:
+                prints('Ignoring un-decodable file:', x)
+
+
 def listdir(root, sort_by_mtime=False):
-    items = (os.path.join(root, x) for x in os.listdir(root))
+    items = (os.path.join(root, x) for x in unicode_listdir(root))
     if sort_by_mtime:
         def safe_mtime(x):
             try:
@@ -112,8 +127,18 @@ def find_books_in_directory(dirpath, single_book_per_directory, compiled_rules=(
                 yield list(formats.itervalues())
 
 
+def create_format_map(formats):
+    format_map = {}
+    for path in formats:
+        ext = os.path.splitext(path)[1][1:].upper()
+        if ext == 'OPF':
+            continue
+        format_map[ext] = path
+    return format_map
+
+
 def import_book_directory_multiple(db, dirpath, callback=None,
-        added_ids=None, compiled_rules=()):
+        added_ids=None, compiled_rules=(), add_duplicates=False):
     from calibre.ebooks.metadata.meta import metadata_from_formats
 
     duplicates = []
@@ -121,10 +146,11 @@ def import_book_directory_multiple(db, dirpath, callback=None,
         mi = metadata_from_formats(formats)
         if mi.title is None:
             continue
-        if db.has_book(mi):
+        ids, dups = db.new_api.add_books([(mi, create_format_map(formats))], add_duplicates=add_duplicates)
+        if dups:
             duplicates.append((mi, formats))
             continue
-        book_id = db.import_book(mi, formats)
+        book_id = next(iter(ids))
         if added_ids is not None:
             added_ids.add(book_id)
         if callable(callback):
@@ -133,7 +159,7 @@ def import_book_directory_multiple(db, dirpath, callback=None,
     return duplicates
 
 
-def import_book_directory(db, dirpath, callback=None, added_ids=None, compiled_rules=()):
+def import_book_directory(db, dirpath, callback=None, added_ids=None, compiled_rules=(), add_duplicates=False):
     from calibre.ebooks.metadata.meta import metadata_from_formats
     dirpath = os.path.abspath(dirpath)
     formats = None
@@ -144,9 +170,10 @@ def import_book_directory(db, dirpath, callback=None, added_ids=None, compiled_r
     mi = metadata_from_formats(formats)
     if mi.title is None:
         return
-    if db.has_book(mi):
+    ids, dups = db.new_api.add_books([(mi, create_format_map(formats))], add_duplicates=add_duplicates)
+    if dups:
         return [(mi, formats)]
-    book_id = db.import_book(mi, formats)
+    book_id = next(iter(ids))
     if added_ids is not None:
         added_ids.add(book_id)
     if callable(callback):
@@ -154,14 +181,13 @@ def import_book_directory(db, dirpath, callback=None, added_ids=None, compiled_r
 
 
 def recursive_import(db, root, single_book_per_directory=True,
-        callback=None, added_ids=None, compiled_rules=()):
+        callback=None, added_ids=None, compiled_rules=(), add_duplicates=False):
     root = os.path.abspath(root)
     duplicates  = []
     for dirpath in os.walk(root):
-        res = (import_book_directory(db, dirpath[0], callback=callback,
-            added_ids=added_ids, compiled_rules=compiled_rules) if single_book_per_directory else
-            import_book_directory_multiple(db, dirpath[0],
-                callback=callback, added_ids=added_ids, compiled_rules=compiled_rules))
+        func = import_book_directory if single_book_per_directory else import_book_directory_multiple
+        res = func(db, dirpath[0], callback=callback,
+            added_ids=added_ids, compiled_rules=compiled_rules, add_duplicates=add_duplicates)
         if res is not None:
             duplicates.extend(res)
         if callable(callback):
@@ -236,5 +262,3 @@ def add_news(cache, path, arg, dbapi=None):
     if not hasattr(path, 'read'):
         stream.close()
     return db_id
-
-

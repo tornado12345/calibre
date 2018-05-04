@@ -13,7 +13,7 @@ from itertools import izip
 
 from PyQt5.Qt import (
     QStyledItemDelegate, Qt, QTreeView, pyqtSignal, QSize, QIcon, QApplication,
-    QMenu, QPoint, QModelIndex, QToolTip, QCursor, QDrag, QRect,
+    QMenu, QPoint, QToolTip, QCursor, QDrag, QRect, QModelIndex,
     QLinearGradient, QPalette, QColor, QPen, QBrush, QFont
 )
 
@@ -30,7 +30,7 @@ class TagDelegate(QStyledItemDelegate):  # {{{
 
     def __init__(self, *args, **kwargs):
         QStyledItemDelegate.__init__(self, *args, **kwargs)
-        self.old_look = gprefs['tag_browser_old_look']
+        self.old_look = False
         self.rating_pat = re.compile(r'[%s]' % rating_to_stars(3, True))
         self.rating_font = QFont(rating_font())
 
@@ -162,6 +162,12 @@ class TagsView(QTreeView):  # {{{
         self._model.user_categories_edited.connect(self.user_categories_edited,
                 type=Qt.QueuedConnection)
         self._model.drag_drop_finished.connect(self.drag_drop_finished)
+        self.set_look_and_feel()
+        # Allowing keyboard focus looks bad in the Qt Fusion style and is useless
+        # anyway since the enter/spacebar keys do nothing
+        self.setFocusPolicy(Qt.NoFocus)
+
+    def set_look_and_feel(self):
         stylish_tb = '''
                 QTreeView {
                     background-color: palette(window);
@@ -172,8 +178,8 @@ class TagsView(QTreeView):  # {{{
         self.setStyleSheet('''
                 QTreeView::item {
                     border: 1px solid transparent;
-                    padding-top:0.8ex;
-                    padding-bottom:0.8ex;
+                    padding-top:PADex;
+                    padding-bottom:PADex;
                 }
 
                 QTreeView::item:hover {
@@ -181,12 +187,10 @@ class TagsView(QTreeView):  # {{{
                     border: 1px solid #bfcde4;
                     border-radius: 6px;
                 }
-        ''' + ('' if gprefs['tag_browser_old_look'] else stylish_tb))
-        if gprefs['tag_browser_old_look']:
-            self.setAlternatingRowColors(True)
-        # Allowing keyboard focus looks bad in the Qt Fusion style and is useless
-        # anyway since the enter/spacebar keys do nothing
-        self.setFocusPolicy(Qt.NoFocus)
+        '''.replace('PAD', str(gprefs['tag_browser_item_padding'])) + (
+            '' if gprefs['tag_browser_old_look'] else stylish_tb))
+        self.setAlternatingRowColors(gprefs['tag_browser_old_look'])
+        self.itemDelegate().old_look = gprefs['tag_browser_old_look']
 
     @property
     def hidden_categories(self):
@@ -209,9 +213,17 @@ class TagsView(QTreeView):  # {{{
     def get_state(self):
         state_map = {}
         expanded_categories = []
-        for row, category in enumerate(self._model.category_nodes):
-            if self.isExpanded(self._model.index(row, 0, QModelIndex())):
-                expanded_categories.append(category.category_key)
+        hide_empty_categories = self.model().prefs['tag_browser_hide_empty_categories']
+        crmap = self._model.category_row_map()
+        for category in self._model.category_nodes:
+            if (category.category_key in self.hidden_categories or
+                    (hide_empty_categories and len(category.child_tags()) == 0)):
+                continue
+            row = crmap.get(category.category_key)
+            if row is not None:
+                index = self._model.index(row, 0, QModelIndex())
+                if self.isExpanded(index):
+                    expanded_categories.append(category.category_key)
             states = [c.tag.state for c in category.child_tags()]
             names = [(c.tag.name, c.tag.category) for c in category.child_tags()]
             state_map[category.category_key] = dict(izip(names, states))
@@ -353,7 +365,7 @@ class TagsView(QTreeView):  # {{{
             if action == 'set_icon':
                 try:
                     path = choose_files(self, 'choose_category_icon',
-                                _('Change Icon for: %s')%key, filters=[
+                                _('Change icon for: %s')%key, filters=[
                                 ('Images', ['png', 'gif', 'jpg', 'jpeg'])],
                             all_files=False, select_only_single_file=True)
                     if path:
@@ -531,9 +543,9 @@ class TagsView(QTreeView):  # {{{
                                             action='edit_author_link', index=tag.id))
 
                         # is_editable is also overloaded to mean 'can be added
-                        # to a user category'
+                        # to a User category'
                         m = self.context_menu.addMenu(self.user_category_icon,
-                                        _('Add %s to user category')%display_name(tag))
+                                        _('Add %s to User category')%display_name(tag))
                         nt = self.model().user_category_node_tree
 
                         def add_node_tree(tree_dict, m, path):
@@ -591,7 +603,7 @@ class TagsView(QTreeView):  # {{{
                             partial(self.context_menu_handler,
                                     action='add_subcategory', key=key))
                     self.context_menu.addAction(self.delete_icon,
-                            _('Delete user category %s')%item.py_name,
+                            _('Delete User category %s')%item.py_name,
                             partial(self.context_menu_handler,
                                     action='delete_user_category', key=key))
                     self.context_menu.addSeparator()
@@ -634,7 +646,7 @@ class TagsView(QTreeView):  # {{{
                     self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='edit_author_sort'))
                 elif key == 'search':
-                    self.context_menu.addAction(_('Manage Saved Searches'),
+                    self.context_menu.addAction(_('Manage Saved searches'),
                         partial(self.context_menu_handler, action='manage_searches',
                                 category=tag.name if tag else None))
 
@@ -644,15 +656,15 @@ class TagsView(QTreeView):  # {{{
                 self.context_menu.addAction(_('Restore default icon'),
                         partial(self.context_menu_handler, action='clear_icon', key=key))
 
-                # Always show the user categories editor
+                # Always show the User categories editor
                 self.context_menu.addSeparator()
                 if key.startswith('@') and \
                         key[1:] in self.db.prefs.get('user_categories', {}).keys():
-                    self.context_menu.addAction(_('Manage User Categories'),
+                    self.context_menu.addAction(_('Manage User categories'),
                             partial(self.context_menu_handler, action='manage_categories',
                                     category=key[1:]))
                 else:
-                    self.context_menu.addAction(_('Manage User Categories'),
+                    self.context_menu.addAction(_('Manage User categories'),
                             partial(self.context_menu_handler, action='manage_categories',
                                     category=None))
 
@@ -691,6 +703,8 @@ class TagsView(QTreeView):  # {{{
         if index.isValid() and self.model().rowCount(index) > 0:
             self.context_menu.addSeparator()
             self.context_menu.addAction(_('E&xpand all children'), partial(self.expand_node_and_descendants, index))
+
+        self.context_menu.addAction(_('Collapse all levels'), self.collapseAll)
 
         if not self.context_menu.isEmpty():
             self.context_menu.popup(self.mapToGlobal(point))
@@ -757,6 +771,10 @@ class TagsView(QTreeView):  # {{{
             idx = idx.parent()
         return self.isExpanded(idx)
 
+    def recount_with_position_based_index(self):
+        self._model.use_position_based_index_on_next_recount = True
+        self.recount()
+
     def recount(self, *args):
         '''
         Rebuild the category tree, expand any categories that were expanded,
@@ -768,7 +786,12 @@ class TagsView(QTreeView):  # {{{
         ci = self.currentIndex()
         if not ci.isValid():
             ci = self.indexAt(QPoint(10, 10))
-        path = self.model().path_for_index(ci) if self.is_visible(ci) else None
+        use_pos = self._model.use_position_based_index_on_next_recount
+        self._model.use_position_based_index_on_next_recount = False
+        if use_pos:
+            path = self._model.path_for_index(ci) if self.is_visible(ci) else None
+        else:
+            path = self._model.named_path_for_index(ci) if self.is_visible(ci) else None
         expanded_categories, state_map = self.get_state()
         self._model.rebuild_node_tree(state_map=state_map)
         self.blockSignals(True)
@@ -776,7 +799,13 @@ class TagsView(QTreeView):  # {{{
             idx = self._model.index_for_category(category)
             if idx is not None and idx.isValid():
                 self.expand(idx)
-        self.show_item_at_path(path)
+        if path is not None:
+            if use_pos:
+                self.show_item_at_path(path)
+            else:
+                index = self._model.index_for_named_path(path)
+                if index.isValid():
+                    self.show_item_at_index(index)
         self.blockSignals(False)
 
     def show_item_at_path(self, path, box=False,

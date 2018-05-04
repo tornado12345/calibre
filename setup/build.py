@@ -9,7 +9,7 @@ __docformat__ = 'restructuredtext en'
 import textwrap, os, shlex, subprocess, glob, shutil, re, sys, json
 from collections import namedtuple
 
-from setup import Command, islinux, isbsd, isosx, ishaiku, SRC, iswindows, __version__
+from setup import Command, islinux, isbsd, isfreebsd, isosx, ishaiku, SRC, iswindows, __version__
 isunix = islinux or isosx or isbsd or ishaiku
 
 py_lib = os.path.join(sys.prefix, 'libs', 'python%d%d.lib' % sys.version_info[:2])
@@ -34,6 +34,15 @@ class Extension(object):
         self.error = d['error'] = kwargs.get('error', None)
         self.libraries = d['libraries'] = kwargs.get('libraries', [])
         self.cflags = d['cflags'] = kwargs.get('cflags', [])
+        if iswindows:
+            self.cflags.append('/DCALIBRE_MODINIT_FUNC=PyMODINIT_FUNC')
+        else:
+            if self.needs_cxx:
+                self.cflags.append('-DCALIBRE_MODINIT_FUNC=extern "C" __attribute__ ((visibility ("default"))) void')
+            else:
+                self.cflags.append('-DCALIBRE_MODINIT_FUNC=__attribute__ ((visibility ("default"))) void')
+                if kwargs.get('needs_c99'):
+                    self.cflags.insert(0, '-std=c99')
         self.ldflags = d['ldflags'] = kwargs.get('ldflags', [])
         self.optional = d['options'] = kwargs.get('optional', False)
         of = kwargs.get('optimize_level', None)
@@ -80,9 +89,9 @@ def expand_file_list(items, is_paths=True):
 def is_ext_allowed(ext):
     only = ext.get('only', '')
     if only:
-        only = only.split()
-        q = 'windows' if iswindows else 'osx' if isosx else 'bsd' if isbsd else 'haiku' if ishaiku else 'linux'
-        return q in only
+        only = set(only.split())
+        q = set(filter(lambda x: globals()["is" + x], ["bsd", "freebsd", "haiku", "linux", "osx", "windows"]))
+        return len(q.intersection(only)) > 0
     return True
 
 
@@ -100,6 +109,8 @@ def parse_extension(ext):
             ans = ext.pop('osx_' + k, ans)
         elif isbsd:
             ans = ext.pop('bsd_' + k, ans)
+        elif isfreebsd:
+            ans = ext.pop('freebsd_' + k, ans)
         elif ishaiku:
             ans = ext.pop('haiku_' + k, ans)
         else:
@@ -145,6 +156,7 @@ def init_env():
         ldflags = shlex.split(ldflags)
         cflags += shlex.split(os.environ.get('CFLAGS', ''))
         ldflags += shlex.split(os.environ.get('LDFLAGS', ''))
+        cflags += ['-fvisibility=hidden']
 
     if islinux:
         cflags.append('-pthread')
@@ -221,8 +233,7 @@ class Build(Command):
     def add_options(self, parser):
         choices = [e['name'] for e in read_extensions() if is_ext_allowed(e)]+['all', 'headless']
         parser.add_option('-1', '--only', choices=choices, default='all',
-                help=('Build only the named extension. Available: '+
-                    ', '.join(choices)+'. Default:%default'))
+                help=('Build only the named extension. Available: '+ ', '.join(choices)+'. Default:%default'))
         parser.add_option('--no-compile', default=False, action='store_true',
                 help='Skip compiling all C/C++ extensions.')
         parser.add_option('--build-dir', default=None,
@@ -337,10 +348,9 @@ class Build(Command):
 
     def build_headless(self):
         from setup.parallel_build import cpu_count
-        if iswindows or isosx or ishaiku:
+        if iswindows or ishaiku:
             return  # Dont have headless operation on these platforms
         from setup.build_environment import glib_flags, fontconfig_flags, ft_inc_dirs, QMAKE
-        from PyQt5.QtCore import QT_VERSION
         self.info('\n####### Building headless QPA plugin', '#'*7)
         a = absolutize
         headers = a([
@@ -352,7 +362,9 @@ class Build(Command):
             'calibre/headless/headless_backingstore.cpp',
             'calibre/headless/headless_integration.cpp',
         ])
-        if QT_VERSION >= 0x50401:
+        if isosx:
+            sources.extend(a(['calibre/headless/coretext_fontdatabase.mm']))
+        else:
             headers.extend(a(['calibre/headless/fontconfig_database.h']))
             sources.extend(a(['calibre/headless/fontconfig_database.cpp']))
         others = a(['calibre/headless/headless.json'])
@@ -405,6 +417,8 @@ class Build(Command):
             self.check_call([self.env.make] + ['-j%d'%(cpu_count or 1)])
         finally:
             os.chdir(cwd)
+        if isosx:
+            os.rename(self.j(self.d(target), 'libheadless.dylib'), self.j(self.d(target), 'headless.so'))
 
     def build_sip_files(self, ext, src_dir):
         from setup.build_environment import pyqt
@@ -413,15 +427,14 @@ class Build(Command):
         sipf = sip_files[0]
         sbf = self.j(src_dir, self.b(sipf)+'.sbf')
         if self.newer(sbf, [sipf]+ext.headers):
-            cmd = [pyqt['sip_bin'], '-w', '-c', src_dir, '-b', sbf, '-I'+
-                    pyqt['pyqt_sip_dir']] + shlex.split(pyqt['sip_flags']) + [sipf]
+            cmd = [pyqt['sip_bin'], '-w', '-c', src_dir, '-b', sbf, '-I' + pyqt['pyqt_sip_dir']] + shlex.split(pyqt['sip_flags']) + [sipf]
             self.info(' '.join(cmd))
             self.check_call(cmd)
             self.info('')
         raw = open(sbf, 'rb').read().decode('utf-8')
 
         def read(x):
-            ans = re.search('^%s\s*=\s*(.+)$' % x, raw, flags=re.M).group(1).strip()
+            ans = re.search(r'^%s\s*=\s*(.+)$' % x, raw, flags=re.M).group(1).strip()
             if x != 'target':
                 ans = ans.split()
             return ans

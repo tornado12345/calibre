@@ -15,12 +15,12 @@ from lxml import etree
 from calibre import guess_type, strftime
 from calibre.constants import iswindows
 from calibre.ebooks.BeautifulSoup import BeautifulSoup
-from calibre.ebooks.oeb.base import XPath, XHTML_NS, XHTML, xml2text, urldefrag
+from calibre.ebooks.oeb.base import XPath, XHTML_NS, XHTML, xml2text, urldefrag, urlnormalize
 from calibre.library.comments import comments_to_html
-from calibre.utils.date import is_date_undefined
+from calibre.utils.date import is_date_undefined, as_local_time
 from calibre.utils.icu import sort_key
 from calibre.ebooks.chardet import strip_encoding_declarations
-from calibre.ebooks.metadata import fmt_sidx
+from calibre.ebooks.metadata import fmt_sidx, rating_to_stars
 
 JACKET_XPATH = '//h:meta[@name="calibre-content" and @content="jacket"]'
 
@@ -43,7 +43,10 @@ class Base(object):
             if removed >= limit:
                 break
             href  = item.abshref(img.get('src'))
-            image = self.oeb.manifest.hrefs.get(href, None)
+            image = self.oeb.manifest.hrefs.get(href)
+            if image is None:
+                href = urlnormalize(href)
+                image = self.oeb.manifest.hrefs.get(href)
             if image is not None:
                 self.oeb.manifest.remove(image)
                 self.oeb.guide.remove_by_href(href)
@@ -71,6 +74,8 @@ class RemoveFirstImage(Base):
                         self.oeb.manifest.remove(item)
                         deleted_item = item
                 break
+        else:
+            self.log.warn('Could not find first image to remove')
         if deleted_item is not None:
             for item in list(self.oeb.toc):
                 href = urldefrag(item.href)[0]
@@ -169,13 +174,17 @@ class Series(unicode):
 
     def __new__(self, series, series_index):
         if series and series_index is not None:
-            roman = _('Number {1} of <em>{0}</em>').format(
+            roman = _('{1} of <em>{0}</em>').format(
                 escape(series), escape(fmt_sidx(series_index, use_roman=True)))
-            series = escape(series + ' [%s]'%fmt_sidx(series_index, use_roman=False))
+            combined = _('{1} of <em>{0}</em>').format(
+                escape(series), escape(fmt_sidx(series_index, use_roman=False)))
         else:
-            series = roman = escape(series or u'')
-        s = unicode.__new__(self, series)
+            combined = roman = escape(series or u'')
+        s = unicode.__new__(self, combined)
         s.roman = roman
+        s.name = escape(series or u'')
+        s.number = escape(fmt_sidx(series_index or 1.0, use_roman=False))
+        s.roman_number = escape(fmt_sidx(series_index or 1.0, use_roman=True))
         return s
 
 
@@ -216,7 +225,8 @@ def render_jacket(mi, output_profile,
         if is_date_undefined(mi.pubdate):
             pubdate = ''
         else:
-            pubdate = strftime(u'%Y', mi.pubdate.timetuple())
+            dt = as_local_time(mi.pubdate)
+            pubdate = strftime(u'%Y', dt.timetuple())
     except:
         pubdate = ''
 
@@ -252,12 +262,19 @@ def render_jacket(mi, output_profile,
                     searchable_tags=' '.join(escape(t)+'ttt' for t in tags.tags_list),
                     )
         for key in mi.custom_field_keys():
+            m = mi.get_user_metadata(key, False) or {}
             try:
                 display_name, val = mi.format_field_extended(key)[:2]
-                key = key.replace('#', '_')
-                args[key] = escape(val)
-                args[key+'_label'] = escape(display_name)
-            except:
+                dkey = key.replace('#', '_')
+                dt = m.get('datatype')
+                if dt == 'series':
+                    args[dkey] = Series(mi.get(key), mi.get(key + '_index'))
+                elif dt == 'rating':
+                    args[dkey] = rating_to_stars(mi.get(key), m.get('display', {}).get('allow_half_stars', False))
+                else:
+                    args[dkey] = escape(val)
+                args[dkey+'_label'] = escape(display_name)
+            except Exception:
                 # if the val (custom column contents) is None, don't add to args
                 pass
 

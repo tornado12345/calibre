@@ -21,17 +21,17 @@ from calibre.utils.localization import localize_user_manual_link
 USAGE = '%prog ' + _('''\
 input_file output_file [options]
 
-Convert an ebook from one format to another.
+Convert an e-book from one format to another.
 
 input_file is the input and output_file is the output. Both must be \
 specified as the first two arguments to the command.
 
-The output ebook format is guessed from the file extension of \
+The output e-book format is guessed from the file extension of \
 output_file. output_file can also be of the special format .EXT where \
 EXT is the output file extension. In this case, the name of the output \
 file is derived from the name of the input file. Note that the filenames must \
 not start with a hyphen. Finally, if output_file has no extension, then \
-it is treated as a directory and an "open ebook" (OEB) consisting of HTML \
+it is treated as a directory and an "open e-book" (OEB) consisting of HTML \
 files is written to that directory. These files are the files that would \
 normally have been passed to the output plugin.
 
@@ -106,8 +106,8 @@ def option_recommendation_to_cli_option(add_option, rec):
             'Path to a file containing rules to transform the CSS styles'
             ' in this book. The easiest way to create such a file is to'
             ' use the wizard for creating rules in the calibre GUI. Access'
-            ' it in the "Look & Feel->Transform styles" section of the conversion'
-            ' dialog. Once you create the rules, you can use the Export button'
+            ' it in the "Look & feel->Transform styles" section of the conversion'
+            ' dialog. Once you create the rules, you can use the "Export" button'
             ' to save them to a file.'
         )
     if opt.name in DEFAULT_TRUE_OPTIONS and rec.recommended_value is True:
@@ -269,7 +269,7 @@ def add_pipeline_options(parser, plumber):
 def option_parser():
     parser = OptionParser(usage=USAGE)
     parser.add_option('--list-recipes', default=False, action='store_true',
-            help=_('List builtin recipe names. You can create an ebook from '
+            help=_('List builtin recipe names. You can create an e-book from '
                 'a builtin recipe like this: ebook-convert "Recipe Name.recipe" '
                 'output.epub'))
     return parser
@@ -331,31 +331,29 @@ def abspath(x):
 
 
 def read_sr_patterns(path, log=None):
-    import json, re, codecs
+    import json, re
     pats = []
-    with codecs.open(path, 'r', 'utf-8') as f:
-        pat = None
-        for line in f.readlines():
-            if line.endswith(u'\n'):
-                line = line[:-1]
-
-            if pat is None:
-                if not line.strip():
-                    continue
-                try:
-                    re.compile(line)
-                except:
-                    msg = u'Invalid regular expression: %r from file: %r'%(
-                            line, path)
-                    if log is not None:
-                        log.error(msg)
-                        raise SystemExit(1)
-                    else:
-                        raise ValueError(msg)
-                pat = line
-            else:
-                pats.append((pat, line))
-                pat = None
+    with open(path, 'rb') as f:
+        lines = f.read().decode('utf-8').splitlines()
+    pat = None
+    for line in lines:
+        if pat is None:
+            if not line.strip():
+                continue
+            try:
+                re.compile(line)
+            except:
+                msg = u'Invalid regular expression: %r from file: %r'%(
+                        line, path)
+                if log is not None:
+                    log.error(msg)
+                    raise SystemExit(1)
+                else:
+                    raise ValueError(msg)
+            pat = line
+        else:
+            pats.append((pat, line))
+            pat = None
     return json.dumps(pats)
 
 
@@ -418,4 +416,3 @@ options specific to every input and output format.''')
 
 if __name__ == '__main__':
     sys.exit(main())
-

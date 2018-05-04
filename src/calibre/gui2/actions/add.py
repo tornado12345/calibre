@@ -30,15 +30,12 @@ from calibre.ptempfile import PersistentTemporaryFile
 def get_filters():
     return [
             (_('Books'), BOOK_EXTENSIONS),
-            (_('EPUB Books'), ['epub']),
-            (_('LRF Books'), ['lrf']),
-            (_('HTML Books'), ['htm', 'html', 'xhtm', 'xhtml']),
-            (_('LIT Books'), ['lit']),
-            (_('MOBI Books'), ['mobi', 'prc', 'azw', 'azw3']),
-            (_('Topaz books'), ['tpz','azw1']),
-            (_('Text books'), ['txt', 'text', 'rtf']),
-            (_('PDF Books'), ['pdf', 'azw4']),
-            (_('SNB Books'), ['snb']),
+            (_('EPUB books'), ['epub', 'kepub']),
+            (_('Kindle books'), ['mobi', 'prc', 'azw', 'azw3', 'kfx', 'tpz', 'azw1', 'azw4']),
+            (_('PDF books'), ['pdf', 'azw4']),
+            (_('HTML books'), ['htm', 'html', 'xhtm', 'xhtml']),
+            (_('LIT books'), ['lit']),
+            (_('Text books'), ['txt', 'text', 'rtf', 'md', 'markdown', 'textile', 'txtz']),
             (_('Comics'), ['cbz', 'cbr', 'cbc']),
             (_('Archives'), ['zip', 'rar']),
             (_('Wordprocessor files'), ['odt', 'doc', 'docx']),
@@ -60,12 +57,12 @@ class AddAction(InterfaceAction):
         self.add_menu = self.qaction.menu()
         ma = partial(self.create_menu_action, self.add_menu)
         ma('recursive-single', _('Add books from directories, including '
-            'sub-directories (One book per directory, assumes every ebook '
+            'sub-directories (One book per directory, assumes every e-book '
             'file is the same book in a different format)')).triggered.connect(
             self.add_recursive_single)
         ma('recursive-multiple', _('Add books from directories, including '
             'sub-directories (Multiple books per directory, assumes every '
-            'ebook file is a different book)')).triggered.connect(
+            'e-book file is a different book)')).triggered.connect(
                     self.add_recursive_multiple)
         arm = self.add_archive_menu = self.add_menu.addMenu(_('Add multiple books from archive (ZIP/RAR)'))
         self.create_menu_action(arm, 'recursive-single-archive', _(
@@ -133,8 +130,10 @@ class AddAction(InterfaceAction):
                 override = formats.intersection(nformats)
                 if override:
                     title = db.title(ids[0], index_is_id=True)
-                    msg = _('The {0} format(s) will be replaced in the book {1}. Are you sure?').format(
-                        ', '.join(override), title)
+                    msg = ngettext(
+                        'The {0} format will be replaced in the book {1}. Are you sure?',
+                        'The {0} formats will be replaced in the book {1}. Are you sure?',
+                        len(override)).format(', '.join(override), title)
                     if not confirm(msg, 'confirm_format_override_on_add', title=_('Are you sure?'), parent=self.gui):
                         return
 
@@ -285,9 +284,7 @@ class AddAction(InterfaceAction):
                     fmts = [pt.name]
                 ids.append(db.import_book(mi, fmts))
             tuple(map(os.remove, orig_fmts))
-            self.gui.library_view.model().books_added(num)
-            self.gui.refresh_cover_browser()
-            self.gui.tags_view.recount()
+            self.refresh_gui(num)
             if ids:
                 ids.reverse()
                 self.gui.library_view.select_rows(ids)
@@ -439,6 +436,14 @@ class AddAction(InterfaceAction):
         Adder(paths, db=None if to_device else self.gui.current_db,
               parent=self.gui, callback=partial(self._files_added, on_card=on_card), pool=self.gui.spare_pool())
 
+    def refresh_gui(self, num, set_current_row=-1, recount=True):
+        self.gui.library_view.model().books_added(num)
+        if set_current_row > -1:
+            self.gui.library_view.set_current_row(0)
+        self.gui.refresh_cover_browser()
+        if recount:
+            self.gui.tags_view.recount()
+
     def _files_added(self, adder, on_card=None):
         if adder.items:
             paths, infos, names = [], [], []
@@ -452,10 +457,7 @@ class AddAction(InterfaceAction):
             return
 
         if adder.number_of_books_added > 0:
-            self.gui.library_view.model().books_added(adder.number_of_books_added)
-            self.gui.library_view.set_current_row(0)
-            self.gui.refresh_cover_browser()
-            self.gui.tags_view.recount()
+            self.refresh_gui(adder.number_of_books_added, set_current_row=0)
 
         if adder.merged_books:
             merged = defaultdict(list)
@@ -473,7 +475,7 @@ class AddAction(InterfaceAction):
             info_dialog(self.gui, _('Merged some books'), pm + ' ' +
                 _('Incoming book formats were processed and merged into your '
                     'calibre database according to your auto-merge '
-                    'settings:'),
+                    'settings. Click "Show details" to see the list of merged books.'),
                     det_msg='\n'.join(lines), show=True)
 
         if adder.number_of_books_added > 0 or adder.merged_books:

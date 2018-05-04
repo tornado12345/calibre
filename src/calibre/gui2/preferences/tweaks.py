@@ -507,7 +507,7 @@ class ConfigWidget(ConfigWidgetBase):
                 import traceback
                 error_dialog(self.gui, _('Failed'),
                         _('There was a syntax error in your tweak. Click '
-                            'the show details button for details.'),
+                            'the "Show details" button for details.'),
                         det_msg=traceback.format_exc(), show=True)
                 return
             self.tweaks.update_tweak(idx, l)
@@ -571,9 +571,8 @@ class ConfigWidget(ConfigWidgetBase):
 
 
 if __name__ == '__main__':
-    app = QApplication([])
+    from calibre.gui2 import Application
+    app = Application([])
     # Tweaks()
     # test_widget
     test_widget('Advanced', 'Tweaks')
-
-

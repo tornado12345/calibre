@@ -64,7 +64,7 @@ class MTP_DEVICE(BASE):
             p.defaults['format_map'] = self.FORMATS
             p.defaults['send_to'] = ['Calibre_Companion', 'Books',
                     'eBooks/import', 'eBooks', 'wordplayer/calibretransfer',
-                    'sdcard/ebooks', 'kindle']
+                    'sdcard/ebooks', 'kindle', 'NOOK']
             p.defaults['send_template'] = '{title} - {authors}'
             p.defaults['blacklist'] = []
             p.defaults['history'] = {}
@@ -229,7 +229,7 @@ class MTP_DEVICE(BASE):
         steps = len(all_books) + 2
         count = 0
 
-        self.report_progress(0, _('Reading ebook metadata'))
+        self.report_progress(0, _('Reading e-book metadata'))
         # Read the cache if it exists
         storage = self.filesystem_cache.storage(sid)
         cache = storage.find_path(self.calibre_file_paths['metadata'].split('/'))

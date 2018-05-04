@@ -13,7 +13,7 @@ from PyQt5.Qt import (
     Qt, QIcon, QFont, QWidget, QScrollArea, QStackedWidget, QVBoxLayout,
     QLabel, QFrame, QToolBar, QSize, pyqtSignal, QDialogButtonBox,
     QHBoxLayout, QDialog, QSizePolicy, QPainter, QTextLayout, QPointF,
-    QStatusTipEvent, QApplication)
+    QStatusTipEvent, QApplication, QTabWidget)
 
 from calibre.constants import __appname__, __version__, islinux
 from calibre.gui2 import (gprefs, min_available_height, available_width,
@@ -132,14 +132,15 @@ class Category(QWidget):  # {{{
         self.actions = []
         for p in plugins:
             target = partial(self.triggered, p)
-            ac = self.bar.addAction(QIcon(p.icon), p.gui_name, target)
+            ac = self.bar.addAction(QIcon(p.icon), p.gui_name.replace('&', '&&'), target)
             ac.setToolTip(textwrap.fill(p.description))
             ac.setWhatsThis(textwrap.fill(p.description))
             ac.setStatusTip(p.description)
             self.actions.append(ac)
             w = self.bar.widgetForAction(ac)
             w.setCursor(Qt.PointingHandCursor)
-            w.setAutoRaise(True)
+            if hasattr(w, 'setAutoRaise'):
+                w.setAutoRaise(True)
             w.setMinimumWidth(100)
 
     def triggered(self, plugin, *args):
@@ -238,7 +239,7 @@ class Preferences(QDialog):
         self.bb.button(self.bb.Discard).clicked.connect(self.reject)
         self.bb.button(self.bb.RestoreDefaults).setIcon(QIcon(I('clear_left.png')))
         self.bb.button(self.bb.RestoreDefaults).clicked.connect(self.restore_defaults)
-        self.wizard_button = self.bb.addButton(_('Run welcome wizard'), self.bb.ActionRole)
+        self.wizard_button = self.bb.addButton(_('Run welcome &wizard'), self.bb.ActionRole)
         self.wizard_button.setIcon(QIcon(I('wizard.png')))
         self.wizard_button.clicked.connect(self.run_wizard, type=Qt.QueuedConnection)
         self.wizard_button.setAutoDefault(False)
@@ -259,10 +260,19 @@ class Preferences(QDialog):
         l.addWidget(self.title_bar), l.addWidget(self.stack), l.addWidget(self.bb)
 
         if initial_plugin is not None:
-            category, name = initial_plugin
+            category, name = initial_plugin[:2]
             plugin = get_plugin(category, name)
             if plugin is not None:
                 self.show_plugin(plugin)
+                if len(initial_plugin) > 2:
+                    w = self.findChild(QWidget, initial_plugin[2])
+                    if w is not None:
+                        for c in self.showing_widget.children():
+                            if isinstance(c, QTabWidget):
+                                idx = c.indexOf(w)
+                                if idx > -1:
+                                    c.setCurrentIndex(idx)
+                                    break
         else:
             self.hide_plugin()
 
@@ -319,6 +329,7 @@ class Preferences(QDialog):
         self.bb.button(self.bb.RestoreDefaults).setToolTip(
             self.showing_widget.restore_defaults_desc if self.showing_widget.supports_restoring_to_defaults else
             (_('Restoring to defaults not supported for') + ' ' + plugin.gui_name))
+        self.bb.button(self.bb.RestoreDefaults).setText(_('Restore &defaults'))
         self.showing_widget.changed_signal.connect(self.changed_signal)
 
     def changed_signal(self):
@@ -408,6 +419,7 @@ class Preferences(QDialog):
             self.on_shutdown()
             return QDialog.reject(self)
         self.hide_plugin()
+
 
 if __name__ == '__main__':
     from calibre.gui_launch import init_dbus

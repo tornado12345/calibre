@@ -12,6 +12,7 @@ from calibre.constants import (__appname__, __version__, iswindows, isosx,
         isportable, is64bit, numeric_version)
 from calibre import prints, as_unicode
 from calibre.utils.config import prefs
+from calibre.utils.localization import localize_website_link
 from calibre.utils.https import get_https_resource_securely
 from calibre.gui2 import config, dynamic, open_url
 from calibre.gui2.dialogs.plugin_updater import get_plugin_updates_available
@@ -26,7 +27,7 @@ def get_download_url():
             else 'osx' if isosx else 'linux')
     if which == 'windows' and is64bit:
         which += '64'
-    return 'https://calibre-ebook.com/download_' + which
+    return localize_website_link('https://calibre-ebook.com/download_' + which)
 
 
 def get_newest_version():
@@ -114,11 +115,11 @@ class UpdateNotification(QDialog):
         ver = calibre_version
         if ver.endswith('.0'):
             ver = ver[:-2]
-        self.label = QLabel(('<p>'+
-            _('New version <b>%(ver)s</b> of %(app)s is available for download. '
-            'See the <a href="https://calibre-ebook.com/whats-new'
-            '">new features</a>.'))%dict(
-                app=__appname__, ver=ver))
+        self.label = QLabel(('<p>'+ _(
+            'New version <b>{ver}</b> of {app} is available for download. '
+            'See the <a href="{url}">new features</a>.').format(
+                url=localize_website_link('https://calibre-ebook.com/whats-new'),
+                app=__appname__, ver=ver)))
         self.label.setOpenExternalLinks(True)
         self.label.setWordWrap(True)
         self.setWindowTitle(_('Update available!'))
@@ -195,8 +196,8 @@ class UpdateMixin(object):
                     u'<a href="update:%s">%s%s</a></span>') % (
                         _('Update found'), version_url, calibre_version, plt)
         else:
-            msg = (u'<a href="update:%s">%d %s</a>')%(version_url, number_of_plugin_updates,
-                    _('updated plugins'))
+            plt = ngettext('updated plugin', 'updated plugins', number_of_plugin_updates)
+            msg = (u'<a href="update:%s">%d %s</a>')%(version_url, number_of_plugin_updates, plt)
         self.status_bar.update_label.setText(msg)
         self.status_bar.update_label.setVisible(True)
 
@@ -223,13 +224,13 @@ class UpdateMixin(object):
         if not plugin:
             return
         if number_of_updates:
-            plugin.qaction.setText(_('Plugin Updates')+'*')
+            plugin.qaction.setText(_('Plugin updates')+'*')
             plugin.qaction.setIcon(QIcon(I('plugins/plugin_updater_updates.png')))
             plugin.qaction.setToolTip(
                 ngettext('A plugin update is available',
                          'There are {} plugin updates available', number_of_updates).format(number_of_updates))
         else:
-            plugin.qaction.setText(_('Plugin Updates'))
+            plugin.qaction.setText(_('Plugin updates'))
             plugin.qaction.setIcon(QIcon(I('plugins/plugin_updater.png')))
             plugin.qaction.setToolTip(_('Install and configure user plugins'))
 
@@ -238,6 +239,7 @@ class UpdateMixin(object):
         if url.startswith('update:'):
             calibre_version, number_of_plugin_updates = cPickle.loads(binascii.unhexlify(url[len('update:'):]))
             self.update_found(calibre_version, number_of_plugin_updates, force=True)
+
 
 if __name__ == '__main__':
     from calibre.gui2 import Application

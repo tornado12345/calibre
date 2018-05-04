@@ -6,7 +6,7 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import tempfile, shutil, sys, os
+import tempfile, shutil, sys, os, errno
 from functools import partial, wraps
 from urlparse import urlparse
 
@@ -16,7 +16,7 @@ from PyQt5.Qt import (
 
 from calibre import prints, isbytestring
 from calibre.constants import cache_dir, iswindows
-from calibre.ptempfile import PersistentTemporaryDirectory, TemporaryDirectory
+from calibre.ptempfile import TemporaryDirectory
 from calibre.ebooks.oeb.base import urlnormalize
 from calibre.ebooks.oeb.polish.main import SUPPORTED, tweak_polish
 from calibre.ebooks.oeb.polish.container import get_container as _gc, clone_container, guess_type, OEB_DOCS, OEB_STYLES
@@ -27,7 +27,7 @@ from calibre.ebooks.oeb.polish.replace import rename_files, replace_file, get_re
 from calibre.ebooks.oeb.polish.split import split, merge, AbortError, multisplit
 from calibre.ebooks.oeb.polish.toc import remove_names_from_toc, create_inline_toc
 from calibre.ebooks.oeb.polish.utils import link_stylesheets, setup_cssutils_serialization as scs
-from calibre.gui2 import error_dialog, choose_files, question_dialog, info_dialog, choose_save_file, open_url, choose_dir
+from calibre.gui2 import error_dialog, choose_files, question_dialog, info_dialog, choose_save_file, open_url, choose_dir, add_to_recent_docs
 from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.gui2.tweak_book import (
     set_current_container, current_container, tprefs, actions, editors,
@@ -49,6 +49,7 @@ from calibre.gui2.tweak_book.widgets import (
 from calibre.utils.config import JSONConfig
 from calibre.utils.icu import numeric_sort_key
 from calibre.utils.imghdr import identify
+from calibre.utils.tdir_in_cache import tdir_in_cache
 
 _diff_dialogs = []
 last_used_transform_rules = []
@@ -252,7 +253,7 @@ class Boss(QObject):
 
     def open_book(self, path=None, edit_file=None, clear_notify_data=True, open_folder=False):
         '''
-        Open the ebook at ``path`` for editing. Will show an error if the ebook is not in a supported format or the current book has unsaved changes.
+        Open the e-book at ``path`` for editing. Will show an error if the e-book is not in a supported format or the current book has unsaved changes.
 
         :param edit_file: The name of a file inside the newly opened book to start editing. Can also be a list of names.
         '''
@@ -296,7 +297,9 @@ class Boss(QObject):
         self.container_count = -1
         if self.tdir:
             shutil.rmtree(self.tdir, ignore_errors=True)
-        self.tdir = PersistentTemporaryDirectory()
+        # We use the cache dir rather than the temporary dir to try and prevent
+        # temp file cleaners from nuking ebooks. See https://bugs.launchpad.net/bugs/1740460
+        self.tdir = tdir_in_cache('ee')
         self._edit_file_on_open = edit_file
         self._clear_notify_data = clear_notify_data
         self.gui.blocking_job('open_book', _('Opening book, please wait...'), self.book_opened, get_container, path, tdir=self.mkdtemp())
@@ -316,7 +319,7 @@ class Boss(QObject):
                     ' Do an EPUB to EPUB conversion before trying to edit this book.'), show=True)
 
             return error_dialog(self.gui, _('Failed to open book'),
-                    _('Failed to open book, click Show details for more information.'),
+                    _('Failed to open book, click "Show details" for more information.'),
                                 det_msg=job.traceback, show=True)
         if cn:
             self.save_manager.clear_notify_data()
@@ -345,8 +348,7 @@ class Boss(QObject):
             self.gui.update_recent_books()
             if iswindows:
                 try:
-                    from win32com.shell import shell, shellcon
-                    shell.SHAddToRecentDocs(shellcon.SHARD_PATHW, path)
+                    add_to_recent_docs(path)
                 except Exception:
                     import traceback
                     traceback.print_exc()
@@ -434,7 +436,7 @@ class Boss(QObject):
         completion_worker().clear_caches('names')
 
     def add_file(self):
-        if not self.ensure_book(_('You must first open a book to tweak, before trying to create new files in it.')):
+        if not self.ensure_book(_('You must first open a book to edit, before trying to create new files in it.')):
             return
         self.commit_dirty_opf()
         d = NewFileDialog(self.gui)
@@ -449,8 +451,11 @@ class Boss(QObject):
         self.add_savepoint(_('Before: Add file %s') % self.gui.elided_text(file_name))
         c = current_container()
         adata = data.replace(b'%CURSOR%', b'') if using_template else data
+        spine_index = c.index_in_spine(self.currently_editing or '')
+        if spine_index is not None:
+            spine_index += 1
         try:
-            added_name = c.add_file(file_name, adata)
+            added_name = c.add_file(file_name, adata, spine_index=spine_index)
         except:
             self.rewind_savepoint()
             raise
@@ -470,7 +475,7 @@ class Boss(QObject):
         return added_name
 
     def add_files(self):
-        if not self.ensure_book(_('You must first open a book to tweak, before trying to create new files in it.')):
+        if not self.ensure_book(_('You must first open a book to edit, before trying to create new files in it.')):
             return
 
         files = choose_files(self.gui, 'tweak-book-bulk-import-files', _('Choose files'))
@@ -661,7 +666,7 @@ class Boss(QObject):
                 _('The name you have chosen {0} contains special characters, internally'
                   ' it will look like: {1}Try to use only the English alphabet [a-z], numbers [0-9],'
                   ' hyphens and underscores for file names. Other characters can cause problems for '
-                  ' different ebook viewers. Are you sure you want to proceed?').format(
+                  ' different e-book viewers. Are you sure you want to proceed?').format(
                       '<pre>%s</pre>'%newname, '<pre>%s</pre>' % urlnormalize(newname)),
                 'confirm-urlunsafe-change', parent=self.gui, title=_('Are you sure?'), config_set=tprefs):
                 return
@@ -761,7 +766,8 @@ class Boss(QObject):
         :param to_container: A container object to compare the current container to. If None, the previously checkpointed container is used
         '''
         self.commit_all_editors_to_container()
-        d = self.create_diff_dialog()
+        k = {} if allow_revert else {'revert_msg': None}
+        d = self.create_diff_dialog(**k)
         d.revert_requested.connect(partial(self.revert_requested, self.global_undo.previous_container))
         other = to_container or self.global_undo.previous_container
         d.container_diff(other, self.global_undo.current_container,
@@ -1141,9 +1147,9 @@ class Boss(QObject):
             self.abort_terminal_save()
         self.set_modified()
         error_dialog(self.gui, _('Could not save'),
-                     _('Saving of the book failed. Click "Show Details"'
+                     _('Saving of the book failed. Click "Show details"'
                        ' for more information. You can try to save a copy'
-                       ' to a different location, via File->Save a Copy'), det_msg=tb, show=True)
+                       ' to a different location, via File->Save a copy'), det_msg=tb, show=True)
 
     def go_to_line_number(self):
         ed = self.gui.central.current_editor
@@ -1283,7 +1289,20 @@ class Boss(QObject):
             self.set_modified()
 
     @in_thread_job
-    def export_requested(self, name, path):
+    def export_requested(self, name_or_names, path):
+        if isinstance(name_or_names, basestring):
+            return self.export_file(name_or_names, path)
+        for name in name_or_names:
+            dest = os.path.abspath(os.path.join(path, name))
+            if '/' in name or os.sep in name:
+                try:
+                    os.makedirs(os.path.dirname(dest))
+                except EnvironmentError as err:
+                    if err.errno != errno.EEXIST:
+                        raise
+            self.export_file(name, dest)
+
+    def export_file(self, name, path):
         if name in editors and not editors[name].is_synced_to_container:
             self.commit_editor_to_container(name)
         with current_container().open(name, 'rb') as src, open(path, 'wb') as dest:

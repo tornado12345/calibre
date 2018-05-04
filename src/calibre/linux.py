@@ -22,11 +22,11 @@ entry_points = {
              'ebook-polish         = calibre.ebooks.oeb.polish.main:main',
              'markdown-calibre     = calibre.ebooks.markdown.__main__:run',
              'web2disk             = calibre.web.fetch.simple:main',
-             'calibre-server       = calibre.library.server.main:main',
+             'calibre-server       = calibre.srv.standalone:main',
              'lrf2lrs              = calibre.ebooks.lrf.lrfparser:main',
              'lrs2lrf              = calibre.ebooks.lrf.lrs.convert_from:main',
              'calibre-debug        = calibre.debug:main',
-             'calibredb            = calibre.library.cli:main',
+             'calibredb            = calibre.db.cli.main:main',
              'calibre-parallel     = calibre.utils.ipc.worker:main',
              'calibre-customize    = calibre.customize.ui:main',
              'calibre-complete     = calibre.utils.complete:main',
@@ -158,7 +158,7 @@ for f in mr:
 
 print ()
 
-if mimetype_icons and raw_input('Remove the ebook format icons? [y/n]:').lower() in ['', 'y']:
+if mimetype_icons and raw_input('Remove the e-book format icons? [y/n]:').lower() in ['', 'y']:
     for i, (name, size) in enumerate(mimetype_icons):
         remove_icon('mimetypes', name, size, update=i == len(mimetype_icons) - 1)
 '''
@@ -329,7 +329,7 @@ class ZshCompleter(object):  # {{{
                                 '--input-encoding' not in o._long_opts]
                 if not opts:
                     continue
-                opts = '\\\n  '.join(tuple(self.get_options(opts)))
+                opts = '\\\n  '.join(tuple(sorted(self.get_options(opts))))
                 w('\n%s() {'%(func%fmt))
                 w('\n  _arguments -s \\\n  ' + opts)
                 w('\n}\n')
@@ -402,15 +402,11 @@ _ebook_edit() {
 ''' % (opt_lines, '|'.join(tweakable_fmts)) + '\n\n').encode('utf-8'))
 
     def do_calibredb(self, f):
-        import calibre.library.cli as cli
+        from calibre.db.cli.main import COMMANDS, option_parser_for
         from calibre.customize.ui import available_catalog_formats
         parsers, descs = {}, {}
-        for command in cli.COMMANDS:
-            op = getattr(cli, '%s_option_parser'%command)
-            args = [['t.epub']] if command == 'catalog' else []
-            p = op(*args)
-            if isinstance(p, tuple):
-                p = p[0]
+        for command in COMMANDS:
+            p = option_parser_for(command)()
             parsers[command] = p
             lines = [x.strip().partition('.')[0] for x in p.usage.splitlines() if x.strip() and
                      not x.strip().startswith('%prog')]
@@ -515,7 +511,7 @@ def write_completion(bash_comp_dest, zsh):
     from calibre.ebooks.metadata.sources.cli import option_parser as fem_op
     from calibre.gui2.main import option_parser as guiop
     from calibre.utils.smtp import option_parser as smtp_op
-    from calibre.library.server.main import option_parser as serv_op
+    from calibre.srv.standalone import create_option_parser as serv_op
     from calibre.ebooks.oeb.polish.main import option_parser as polish_op, SUPPORTED
     from calibre.ebooks.oeb.polish.import_book import IMPORTABLE
     from calibre.debug import option_parser as debug_op
@@ -845,7 +841,7 @@ class PostInstall:
                 f.close()
                 des = ('calibre-gui.desktop', 'calibre-lrfviewer.desktop',
                         'calibre-ebook-viewer.desktop', 'calibre-ebook-edit.desktop')
-                appdata = os.path.join(os.path.dirname(self.opts.staging_sharedir), 'appdata')
+                appdata = os.path.join(os.path.dirname(self.opts.staging_sharedir), 'metainfo')
                 if not os.path.exists(appdata):
                     try:
                         os.mkdir(appdata)
@@ -936,15 +932,17 @@ complete -F _'''%(opts, words) + fname + ' ' + name +"\n\n").encode('utf-8')
 
 
 pics = {'jpg', 'jpeg', 'gif', 'png', 'bmp'}
+pics = list(sorted(pics))  # for reproducability
 
 
 def opts_and_exts(name, op, exts, cover_opts=('--cover',), opf_opts=(),
                   file_map={}):
     opts = ' '.join(options(op))
     exts.extend([i.upper() for i in exts])
-    exts='|'.join(exts)
+    exts='|'.join(sorted(exts))
     fname = name.replace('-', '_')
-    spics = '|'.join(tuple(pics) + tuple(x.upper() for x in pics))
+    spics = pics + [i.upper() for i in pics]
+    spics = '|'.join(sorted(spics))
     special_exts_template = '''\
       %s )
            _filedir %s
@@ -1019,9 +1017,9 @@ ETWEAK = '''\
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Edit E-book
-GenericName=Edit E-books
-Comment=Edit e-books in various formats
+Name=E-book Editor
+GenericName=Editor for E-books
+Comment=Edit E-books in various formats
 TryExec=ebook-edit
 Exec=ebook-edit --detach %f
 Icon=calibre-ebook-edit
@@ -1050,7 +1048,7 @@ def get_appdata():
             'summary':_('The one stop solution to all your e-book needs'),
             'description':(
                 _('calibre is the one stop solution to all your e-book needs.'),
-                _('You can use calibre to catalog your books, fetch metadata for them automatically, convert them from and to all the various ebook formats, send them to your e-book reader devices, read the books on your computer, edit the books in a dedicated e-book editor and even make them available over the network with the built-in content server. You can also download news and periodicals in e-book format from over a thousand different news and magazine websites.')  # noqa
+                _('You can use calibre to catalog your books, fetch metadata for them automatically, convert them from and to all the various e-book formats, send them to your e-book reader devices, read the books on your computer, edit the books in a dedicated e-book editor and even make them available over the network with the built-in Content server. You can also download news and periodicals in e-book format from over a thousand different news and magazine websites.')  # noqa
             ),
             'screenshots':(
                 (1408, 792, 'https://lh4.googleusercontent.com/-bNE1hc_3pIc/UvHLwKPGBPI/AAAAAAAAASA/8oavs_c6xoU/w1408-h792-no/main-default.png',),
@@ -1077,7 +1075,7 @@ def get_appdata():
             'name':'calibre - E-book Viewer',
             'summary':_('Read e-books in over a dozen different formats'),
             'description': (
-                _('The calibre e-book viewer allows you to read e-books in over a dozen different formats.'),
+                _('The calibre E-book viewer allows you to read e-books in over a dozen different formats.'),
                 _('It has a full screen mode for distraction free reading and can display the text with multiple columns per screen.'),
             ),
             'screenshots':(
@@ -1094,7 +1092,7 @@ def write_appdata(key, entry, base, translators):
     fpath = os.path.join(base, '%s.appdata.xml' % key)
     screenshots = E.screenshots()
     for w, h, url in entry['screenshots']:
-        s = E.screenshot(url, width=str(w), height=str(h))
+        s = E.screenshot(E.image(url, width=str(w), height=str(h)))
         screenshots.append(s)
     screenshots[0].set('type', 'default')
     description = E.description()
@@ -1106,8 +1104,8 @@ def write_appdata(key, entry, base, translators):
                 description.append(E.p(tp))
                 description[-1].set('{http://www.w3.org/XML/1998/namespace}lang', lang)
 
-    root = E.application(
-        E.id(key + '.desktop', type='desktop'),
+    root = E.component(
+        E.id(key + '.desktop'),
         E.name(entry['name']),
         E.metadata_license('CC0-1.0'),
         E.project_license('GPL-3.0'),
@@ -1115,6 +1113,7 @@ def write_appdata(key, entry, base, translators):
         description,
         E.url('https://calibre-ebook.com', type='homepage'),
         screenshots,
+        type='desktop'
     )
     for lang, t in translators.iteritems():
         tp = t.ugettext(entry['summary'])
@@ -1141,12 +1140,12 @@ def main():
 
 def cli_index_strings():
     return _('Command Line Interface'), _(
-        'On OS X, the command line tools are inside the calibre bundle, for example,'
+        'On macOS, the command line tools are inside the calibre bundle, for example,'
     ' if you installed calibre in :file:`/Applications` the command line tools'
     ' are in :file:`/Applications/calibre.app/Contents/console.app/Contents/MacOS/`.'), _(
-        'Documented Commands'), _('Undocumented Commands'), _(
+        'Documented commands'), _('Undocumented commands'), _(
         'You can see usage for undocumented commands by executing them without arguments in a terminal.'), _(
-            'Change Language')
+            'Change language'), _('Search')
 
 
 if __name__ == '__main__':

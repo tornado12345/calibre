@@ -22,7 +22,7 @@ from urlparse import urlparse
 from cssutils import getUrls, replaceUrls
 from lxml import etree
 
-from calibre import CurrentDir
+from calibre import CurrentDir, walk
 from calibre.constants import iswindows
 from calibre.customize.ui import plugin_for_input_format, plugin_for_output_format
 from calibre.ebooks import escape_xpath_attr
@@ -122,7 +122,7 @@ def href_to_name(href, root, base=None):
         # assume all such paths are invalid/absolute paths.
         return None
     fullpath = os.path.join(base, *href.split('/'))
-    return abspath_to_name(fullpath, root)
+    return unicodedata.normalize('NFC', abspath_to_name(fullpath, root))
 
 
 class ContainerBase(object):  # {{{
@@ -217,10 +217,10 @@ class ContainerBase(object):  # {{{
 class Container(ContainerBase):  # {{{
 
     '''
-    A container represents an Open EBook as a directory full of files and an
+    A container represents an Open E-Book as a directory full of files and an
     opf file. There are two important concepts:
 
-        * The root directory. This is the base of the ebook. All the ebooks
+        * The root directory. This is the base of the e-book. All the e-books
           files are inside this directory or in its sub-directories.
 
         * Names: These are paths to the books' files relative to the root
@@ -230,7 +230,7 @@ class Container(ContainerBase):  # {{{
           in the NFC unicode normal form.
 
         * Clones: the container object supports efficient on-disk cloning, which is used to
-          implement checkpoints in the ebook editor. In order to make this work, you should
+          implement checkpoints in the e-book editor. In order to make this work, you should
           never access files on the filesystem directly. Instead, use :meth:`raw_data` or
           :meth:`open` to read/write to component files in the book.
 
@@ -545,17 +545,17 @@ class Container(ContainerBase):  # {{{
 
     @property
     def names_that_need_not_be_manifested(self):
-        ' Set of names that are allowed to be missing from the manifest. Depends on the ebook file format. '
+        ' Set of names that are allowed to be missing from the manifest. Depends on the e-book file format. '
         return {self.opf_name}
 
     @property
     def names_that_must_not_be_removed(self):
-        ' Set of names that must never be deleted from the container. Depends on the ebook file format. '
+        ' Set of names that must never be deleted from the container. Depends on the e-book file format. '
         return {self.opf_name}
 
     @property
     def names_that_must_not_be_changed(self):
-        ' Set of names that must never be renamed. Depends on the ebook file format. '
+        ' Set of names that must never be renamed. Depends on the e-book file format. '
         return set()
 
     def parse(self, path, mime):
@@ -702,6 +702,23 @@ class Container(ContainerBase):  # {{{
         self.dirty(self.opf_name)
         return removed_names, added_names
 
+    def add_properties(self, name, *properties):
+        ''' Add the specified properties to the manifest item identified by name. '''
+        properties = frozenset(properties)
+        if not properties:
+            return True
+        for p in properties:
+            if p.startswith('calibre:'):
+                ensure_prefix(self.opf, None, 'calibre', CALIBRE_PREFIX)
+                break
+        for item in self.opf_xpath('//opf:manifest/opf:item'):
+            iname = self.href_to_name(item.get('href'), self.opf_name)
+            if name == iname:
+                props = frozenset((item.get('properties') or '').split()) | properties
+                item.set('properties', ' '.join(props))
+                return True
+        return False
+
     @property
     def guide_type_map(self):
         ' Mapping of guide type to canonical name '
@@ -726,6 +743,14 @@ class Container(ContainerBase):  # {{{
                     non_linear.append((item, name))
         for item, name in non_linear:
             yield item, name, False
+
+    def index_in_spine(self, name):
+        manifest_id_map = self.manifest_id_map
+        for i, item in enumerate(self.opf_xpath('//opf:spine/opf:itemref[@idref]')):
+            idref = item.get('idref')
+            q = manifest_id_map.get(idref, None)
+            if q == name:
+                return i
 
     @property
     def spine_names(self):
@@ -1014,9 +1039,9 @@ class Container(ContainerBase):  # {{{
 
     def commit(self, outpath=None, keep_parsed=False):
         '''
-        Commit all dirtied parsed objects to the filesystem and write out the ebook file at outpath.
+        Commit all dirtied parsed objects to the filesystem and write out the e-book file at outpath.
 
-        :param output: The path to write the saved ebook file to. If None, the path of the original book file is used.
+        :param output: The path to write the saved e-book file to. If None, the path of the original book file is used.
         :param keep_parsed: If True the parsed representations of committed items are kept in the cache.
         '''
         for name in tuple(self.dirtied):
@@ -1115,6 +1140,15 @@ class EpubContainer(Container):
             os.remove(join(tdir, 'mimetype'))
         except EnvironmentError:
             pass
+        # Ensure all filenames are in NFC normalized form
+        # has no effect on HFS+ filesystems as they always store filenames
+        # in NFD form
+        for filename in walk(self.root):
+            n = unicodedata.normalize('NFC', filename)
+            if n != filename:
+                s = filename + 'suff1x'
+                os.rename(filename, s)
+                os.rename(s, n)
 
         container_path = join(self.root, 'META-INF', 'container.xml')
         if not exists(container_path):
@@ -1260,8 +1294,19 @@ class EpubContainer(Container):
                 f.write(raw)
             self.obfuscated_fonts[font] = (alg, tkey)
 
+    def update_modified_timestamp(self):
+        from calibre.ebooks.metadata.opf3 import set_last_modified_in_opf
+        set_last_modified_in_opf(self.opf)
+        self.dirty(self.opf_name)
+
     def commit(self, outpath=None, keep_parsed=False):
+        if self.opf_version_parsed.major == 3:
+            self.update_modified_timestamp()
         super(EpubContainer, self).commit(keep_parsed=keep_parsed)
+        container_path = join(self.root, 'META-INF', 'container.xml')
+        if not exists(container_path):
+            raise InvalidEpub('No META-INF/container.xml in EPUB, this typically happens if the temporary files calibre'
+                              ' is using are deleted by some other program while calibre is running')
         restore_fonts = {}
         for name in self.obfuscated_fonts:
             if name not in self.name_path_map:

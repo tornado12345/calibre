@@ -12,7 +12,7 @@ __docformat__ = 'restructuredtext en'
 Test a binary calibre build to ensure that all needed binary images/libraries have loaded.
 '''
 
-import os, ctypes, sys, unittest
+import os, ctypes, sys, unittest, time
 from calibre.constants import plugins, iswindows, islinux, isosx
 is_ci = os.environ.get('CI', '').lower() == 'true'
 
@@ -43,6 +43,21 @@ class BuildTest(unittest.TestCase):
     def test_regex(self):
         import regex
         self.assertEqual(regex.findall(r'(?i)(a)(b)', 'ab cd AB 1a1b'), [('a', 'b'), ('A', 'B')])
+        self.assertEqual(regex.escape('a b', literal_spaces=True), 'a b')
+
+    def test_chardet(self):
+        from chardet import detect
+        raw = 'mūsi Füße'.encode('utf-8')
+        data = detect(raw)
+        self.assertEqual(data['encoding'], 'utf-8')
+        self.assertGreater(data['confidence'], 0.5)
+        # The following is used by html5lib
+        from chardet.universaldetector import UniversalDetector
+        detector = UniversalDetector()
+        self.assertTrue(hasattr(detector, 'done'))
+        detector.feed(raw)
+        detector.close()
+        self.assertEqual(detector.result['encoding'], 'utf-8')
 
     def test_lzma(self):
         from lzma.xz import test_lzma2
@@ -51,9 +66,10 @@ class BuildTest(unittest.TestCase):
     def test_html5lib(self):
         import html5lib.html5parser  # noqa
         from html5lib import parse  # noqa
-        # Test that we are using the calibre version of html5lib
-        from calibre.ebooks.oeb.polish.parsing import parse_html5
-        parse_html5('<p>xxx')
+
+    def test_html5_parser(self):
+        from html5_parser import parse
+        parse('<p>xxx')
 
     def test_plugins(self):
         exclusions = set()
@@ -89,6 +105,13 @@ class BuildTest(unittest.TestCase):
         from calibre.utils.certgen import create_key_pair
         create_key_pair()
 
+    def test_msgpack(self):
+        from calibre.utils.serialize import msgpack_dumps, msgpack_loads
+        from calibre.utils.date import utcnow
+        for obj in ({1:1}, utcnow()):
+            s = msgpack_dumps(obj)
+            self.assertEqual(obj, msgpack_loads(s))
+
     @unittest.skipUnless(isosx, 'FSEvents only present on OS X')
     def test_fsevents(self):
         from fsevents import Observer, Stream
@@ -97,9 +120,32 @@ class BuildTest(unittest.TestCase):
     @unittest.skipUnless(iswindows, 'winutil is windows only')
     def test_winutil(self):
         from calibre.constants import plugins
+        from calibre import strftime
         winutil = plugins['winutil'][0]
+
+        def au(x, name):
+            self.assertTrue(isinstance(x, unicode), name + '() did not return a unicode string')
         for x in winutil.argv():
-            self.assertTrue(isinstance(x, unicode), 'argv() not returning unicode string')
+            au(x, 'argv')
+        for x in 'username temp_path locale_name'.split():
+            au(getattr(winutil, x)(), x)
+        d = winutil.localeconv()
+        au(d['thousands_sep'], 'localeconv')
+        au(d['decimal_point'], 'localeconv')
+        for k, v in d.iteritems():
+            au(v, k)
+        for k in os.environ.keys():
+            au(winutil.getenv(unicode(k)), 'getenv-' + k)
+        os.environ['XXXTEST'] = 'YYY'
+        self.assertEqual(winutil.getenv(u'XXXTEST'), u'YYY')
+        del os.environ['XXXTEST']
+        self.assertIsNone(winutil.getenv(u'XXXTEST'))
+        t = time.localtime()
+        fmt = u'%Y%a%b%e%H%M'
+        for fmt in (fmt, fmt.encode('ascii')):
+            x = strftime(fmt, t)
+            au(x, 'strftime')
+            self.assertEqual(unicode(time.strftime(fmt.replace('%e', '%#d'), t)), x)
 
     def test_sqlite(self):
         import sqlite3
@@ -112,6 +158,7 @@ class BuildTest(unittest.TestCase):
         conn = apsw.Connection(':memory:')
         conn.close()
 
+    @unittest.skipIf('SKIP_QT_BUILD_TEST' in os.environ, 'Skipping Qt build test as it causes crashes in the macOS VM')
     def test_qt(self):
         from PyQt5.Qt import QImageReader, QNetworkAccessManager, QFontDatabase
         from calibre.utils.img import image_from_data, image_to_data, test
@@ -136,9 +183,10 @@ class BuildTest(unittest.TestCase):
 
         from calibre.gui2 import Application
         os.environ.pop('DISPLAY', None)
-        app = Application([], headless=islinux)
+        has_headless = isosx or islinux
+        app = Application([], headless=has_headless)
         self.assertGreaterEqual(len(QFontDatabase().families()), 5, 'The QPA headless plugin is not able to locate enough system fonts via fontconfig')
-        if islinux:
+        if has_headless:
             from calibre.ebooks.covers import create_cover
             create_cover('xxx', ['yyy'])
         na = QNetworkAccessManager()
@@ -163,7 +211,7 @@ class BuildTest(unittest.TestCase):
         i = Image.open(I('lt.png', allow_user_override=False))
         self.assertGreaterEqual(i.size, (20, 20))
 
-    @unittest.skipUnless(iswindows, 'File dialog helper only used on windows')
+    @unittest.skipUnless(iswindows and not is_ci, 'File dialog helper only used on windows (non-continuous-itegration)')
     def test_file_dialog_helper(self):
         from calibre.gui2.win_file_dialogs import test
         test()
@@ -219,8 +267,8 @@ class BuildTest(unittest.TestCase):
     def test_markdown(self):
         from calibre.ebooks.markdown import Markdown
         Markdown(extensions=['extra'])
-        from calibre.library.comments import sanitize_html
-        sanitize_html(b'''<script>moo</script>xxx<img src="http://moo.com/x.jpg">''')
+        from calibre.library.comments import sanitize_comments_html
+        sanitize_comments_html(b'''<script>moo</script>xxx<img src="http://moo.com/x.jpg">''')
 
     def test_openssl(self):
         import ssl

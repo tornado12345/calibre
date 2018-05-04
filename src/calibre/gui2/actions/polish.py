@@ -54,21 +54,22 @@ class Polish(QDialog):  # {{{
 
             'metadata':_('<h3>Updating metadata</h3>'
                          '<p>This will update all metadata <i>except</i> the cover in the'
-                         ' ebook files to match the current metadata in the'
+                         ' e-book files to match the current metadata in the'
                          ' calibre library.</p>'
-                         ' <p>Note that most ebook'
+                         ' <p>Note that most e-book'
                          ' formats are not capable of supporting all the'
                          ' metadata in calibre.</p><p>There is a separate option to'
                          ' update the cover.</p>'),
-            'do_cover': _('<h3>Update cover</h3><p>Update the covers in the ebook files to match the'
+            'do_cover': _('<h3>Update cover</h3><p>Update the covers in the e-book files to match the'
                         ' current cover in the calibre library.</p>'
-                        '<p>If the ebook file does not have'
+                        '<p>If the e-book file does not have'
                         ' an identifiable cover, a new cover is inserted.</p>'
                         ),
-            'jacket':_('<h3>Book Jacket</h3>%s')%HELP['jacket'],
-            'remove_jacket':_('<h3>Remove Book Jacket</h3>%s')%HELP['remove_jacket'],
+            'jacket':_('<h3>Book jacket</h3>%s')%HELP['jacket'],
+            'remove_jacket':_('<h3>Remove book jacket</h3>%s')%HELP['remove_jacket'],
             'remove_unused_css':_('<h3>Remove unused CSS rules</h3>%s')%HELP['remove_unused_css'],
             'compress_images': _('<h3>Losslessly compress images</h3>%s') % HELP['compress_images'],
+            'upgrade_book': _('<h3>Upgrade book internals</h3>%s') % HELP['upgrade_book'],
         }
 
         self.l = l = QGridLayout()
@@ -84,10 +85,11 @@ class Polish(QDialog):  # {{{
             ('smarten_punctuation', _('Smarten &punctuation')),
             ('metadata', _('Update &metadata in the book files')),
             ('do_cover', _('Update the &cover in the book files')),
-            ('jacket', _('Add/Replace metadata as a "book &jacket" page')),
+            ('jacket', _('Add/replace metadata as a "book &jacket" page')),
             ('remove_jacket', _('&Remove a previously inserted book jacket')),
             ('remove_unused_css', _('Remove &unused CSS rules from the book')),
-            ('compress_images', _('Losslessly compress images')),
+            ('compress_images', _('Losslessly &compress images')),
+            ('upgrade_book', _('&Upgrade book internals')),
         ])
         prefs = gprefs.get('polishing_settings', {})
         for name, text in self.all_actions.iteritems():
@@ -528,6 +530,7 @@ class PolishAction(InterfaceAction):
                 self.gui.library_view.model().current_changed(current, QModelIndex())
         if show_reports:
             self.report(db.title(book_id, index_is_id=True), book_id, fmts, job, job.result)
+
 
 if __name__ == '__main__':
     app = QApplication([])

@@ -12,7 +12,7 @@ from itertools import groupby
 from PyQt5.Qt import (QAbstractTableModel, Qt, pyqtSignal, QIcon, QImage,
         QModelIndex, QDateTime, QColor, QPixmap, QPainter, QApplication)
 
-from calibre import fit_image
+from calibre import fit_image, force_unicode
 from calibre.gui2 import error_dialog
 from calibre.utils.search_query_parser import ParseException
 from calibre.ebooks.metadata import fmt_sidx, authors_to_string, string_to_authors
@@ -385,6 +385,9 @@ class BooksModel(QAbstractTableModel):  # {{{
 
     def delete_books_by_id(self, ids, permanent=False):
         self.db.new_api.remove_books(ids, permanent=permanent)
+        self.ids_deleted(ids)
+
+    def ids_deleted(self, ids):
         self.db.data.books_deleted(tuple(ids))
         self.db.notify('delete', list(ids))
         self.books_deleted()
@@ -931,11 +934,9 @@ class BooksModel(QAbstractTableModel):  # {{{
             self.column_color.mi = None
             return None
         elif role == Qt.DecorationRole:
+            default_icon = None
             if self.column_to_dc_decorator_map[col] is not None:
-                ccicon = self.column_to_dc_decorator_map[index.column()](index.row())
-                if ccicon is not None:
-                    return ccicon
-
+                default_icon = self.column_to_dc_decorator_map[index.column()](index.row())
             rules = self.db.prefs['column_icon_rules']
             if rules:
                 key = self.column_map[col]
@@ -957,10 +958,11 @@ class BooksModel(QAbstractTableModel):  # {{{
                                   self.icon_template_cache)
                     if ccicon is not None:
                         return ccicon
-                    if need_icon_with_text:
+                    if need_icon_with_text and default_icon is None:
                         self.icon_cache[id_][cache_index] = self.bool_blank_icon
                         return self.bool_blank_icon
                     self.icon_cache[id_][cache_index] = None
+            return default_icon
         elif role == Qt.TextAlignmentRole:
             cname = self.column_map[index.column()]
             ans = Qt.AlignVCenter | ALIGNMENT_MAP[self.alignment_map.get(cname,
@@ -1091,11 +1093,11 @@ class BooksModel(QAbstractTableModel):  # {{{
                 import traceback
                 if getattr(err, 'errno', None) == errno.EACCES:  # Permission denied
                     fname = getattr(err, 'filename', None)
-                    p = 'Locked file: %s\n\n'%fname if fname else ''
+                    p = 'Locked file: %s\n\n'%force_unicode(fname if fname else '')
                     error_dialog(get_gui(), _('Permission denied'),
                             _('Could not change the on disk location of this'
                                 ' book. Is it open in another program?'),
-                            det_msg=p+traceback.format_exc(), show=True)
+                            det_msg=p+force_unicode(traceback.format_exc()), show=True)
                     return False
                 error_dialog(get_gui(), _('Failed to set data'),
                         _('Could not set data, click Show Details to see why.'),
@@ -1158,6 +1160,8 @@ class BooksModel(QAbstractTableModel):  # {{{
                 val = val.split(',')
                 self.db.set_languages(id, val)
             else:
+                if column == 'authors' and val:
+                    val = authors_to_string(string_to_authors(val))
                 books_to_refresh |= self.db.set(row, column, val,
                                                 allow_case_change=True)
             self.refresh_ids(list(books_to_refresh), row)

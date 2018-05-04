@@ -12,6 +12,7 @@ defaults = {
     'view_mode': 'cover_grid',
     'sort': 'timestamp.desc',  # comma separated list of items of the form: field.order
     'last_sort_order': {},
+    'show_all_metadata': False, # show all metadata fields in the book details panel
 
     # Tag Browser settings
     'partition_method': 'first letter',  # other choices: 'disable', 'partition'
@@ -30,9 +31,14 @@ defaults = {
     'max_text_height': 0,
     'max_text_width': 0,
     'columns_per_screen': {'portrait':0, 'landscape':0},
+    'user_stylesheet': '',
     'current_color_scheme': 'white',
     'user_color_schemes': {},
     'base_font_size': 16,
+    'controls_help_shown_count': 0,
+    'header': {},
+    'footer': {'right': 'progress'},
+    'word_actions': v'[]',
 }
 
 is_local_setting = {
@@ -44,8 +50,10 @@ is_local_setting = {
     'max_text_height': True,
     'max_text_width': True,
     'columns_per_screen': True,
+    'user_stylesheet': True,
     'current_color_scheme': True,
     'base_font_size': True,
+    'controls_help_shown_count': True,
 }
 
 
@@ -158,11 +166,12 @@ default_interface_data = {
     'gui_timestamp_display_format': 'dd MMM yyyy',
     'gui_last_modified_display_format': 'dd MMM yyyy',
     'use_roman_numerals_for_series_number': True,
-    'allow_console_print':False,
     'default_library_id': None,
     'library_map': None,
     'icon_map': {},
     'icon_path': '',
+    'custom_list_template': None,
+    'num_per_page': 50,
 }
 
 def get_interface_data():
@@ -192,7 +201,7 @@ def update_interface_data(new_data):
 def get_translations(newval):
     if not get_translations.storage:
         get_translations.storage = SessionData('calibre-translations-')
-    if newval:
+    if newval?:
         get_translations.storage.set('current', newval)
     else:
         return get_translations.storage.get('current')

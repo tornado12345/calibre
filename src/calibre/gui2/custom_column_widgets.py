@@ -5,10 +5,11 @@ __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
+import os
 from functools import partial
 
 from PyQt5.Qt import (QComboBox, QLabel, QSpinBox, QDoubleSpinBox, QDateTimeEdit,
-        QDateTime, QGroupBox, QVBoxLayout, QSizePolicy, QGridLayout,
+        QDateTime, QGroupBox, QVBoxLayout, QSizePolicy, QGridLayout, QUrl,
         QSpacerItem, QIcon, QCheckBox, QWidget, QHBoxLayout, QLineEdit,
         QPushButton, QMessageBox, QToolButton, Qt, QPlainTextEdit)
 
@@ -101,9 +102,42 @@ class LongText(Base):
 class Bool(Base):
 
     def setup_ui(self, parent):
-        self.widgets = [QLabel('&'+self.col_metadata['name']+':', parent),
-                QComboBox(parent)]
-        w = self.widgets[1]
+        self.widgets = [QLabel('&'+self.col_metadata['name']+':', parent)]
+        w = QWidget(parent)
+        self.widgets.append(w)
+
+        l = QHBoxLayout()
+        l.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(l)
+        self.combobox = QComboBox(parent)
+        l.addWidget(self.combobox)
+
+        t = _('Yes')
+        c = QPushButton(t, parent)
+        width = c.fontMetrics().boundingRect(t).width() + 7
+        c.setMaximumWidth(width)
+        l.addWidget(c)
+        c.clicked.connect(self.set_to_yes)
+
+        t = _('No')
+        c = QPushButton(t, parent)
+        width = c.fontMetrics().boundingRect(t).width() + 7
+        c.setMaximumWidth(width)
+        l.addWidget(c)
+        c.clicked.connect(self.set_to_no)
+
+        t = _('Clear')
+        c = QPushButton(t, parent)
+        width = c.fontMetrics().boundingRect(t).width() + 7
+        c.setMaximumWidth(width)
+        l.addWidget(c)
+        c.clicked.connect(self.set_to_cleared)
+
+        c = QLabel('', parent)
+        c.setMaximumWidth(1)
+        l.addWidget(c, 1)
+
+        w = self.combobox
         items = [_('Yes'), _('No'), _('Undefined')]
         icons = [I('ok.png'), I('list_remove.png'), I('blank.png')]
         if not self.db.prefs.get('bools_are_tristate'):
@@ -116,11 +150,20 @@ class Bool(Base):
         val = {None: 2, False: 1, True: 0}[val]
         if not self.db.prefs.get('bools_are_tristate') and val == 2:
             val = 1
-        self.widgets[1].setCurrentIndex(val)
+        self.combobox.setCurrentIndex(val)
 
     def getter(self):
-        val = self.widgets[1].currentIndex()
+        val = self.combobox.currentIndex()
         return {2: None, 1: False, 0: True}[val]
+
+    def set_to_yes(self):
+        self.combobox.setCurrentIndex(0)
+
+    def set_to_no(self):
+        self.combobox.setCurrentIndex(1)
+
+    def set_to_cleared(self):
+        self.combobox.setCurrentIndex(2)
 
 
 class Int(Base):
@@ -272,6 +315,12 @@ class Comments(Base):
         self._layout.addWidget(self._tb)
         self._box.setLayout(self._layout)
         self.widgets = [self._box]
+
+    def initialize(self, book_id):
+        path = self.db.abspath(book_id, index_is_id=True)
+        if path:
+            self._tb.set_base_url(QUrl.fromLocalFile(os.path.join(path, 'metadata.html')))
+        return Base.initialize(self, book_id)
 
     def setter(self, val):
         if not val or not val.strip():
@@ -558,6 +607,7 @@ def comments_factory(db, key, parent):
     if ctype in ('long-text', 'markdown'):
         return LongText(db, key, parent)
     return Comments(db, key, parent)
+
 
 widgets = {
         'bool' : Bool,
@@ -932,29 +982,87 @@ class BulkSeries(BulkBase):
         layout = QHBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
         self.remove_series = QCheckBox(parent)
-        self.remove_series.setText(_('Remove series'))
+        self.remove_series.setText(_('Clear series'))
         layout.addWidget(self.remove_series)
         self.idx_widget = QCheckBox(parent)
         self.idx_widget.setText(_('Automatically number books'))
+        self.idx_widget.setToolTip('<p>' +
+                       _('If not checked, the series number for the books will be set to 1. '
+                         'If checked, selected books will be automatically numbered, '
+                         'in the order you selected them. So if you selected '
+                         'Book A and then Book B, Book A will have series number 1 '
+                         'and Book B series number 2.') + '</p>')
         layout.addWidget(self.idx_widget)
         self.force_number = QCheckBox(parent)
         self.force_number.setText(_('Force numbers to start with '))
+        self.force_number.setToolTip('<p>' +
+                         _('Series will normally be renumbered from the highest '
+                           'number in the database for that series. Checking this '
+                           'box will tell calibre to start numbering from the value '
+                           'in the box') + '</p>')
         layout.addWidget(self.force_number)
-        self.series_start_number = QSpinBox(parent)
-        self.series_start_number.setMinimum(1)
-        self.series_start_number.setMaximum(9999999)
-        self.series_start_number.setProperty("value", 1)
+        self.series_start_number = QDoubleSpinBox(parent)
+        self.series_start_number.setMinimum(0.0)
+        self.series_start_number.setMaximum(9999999.0)
+        self.series_start_number.setProperty("value", 1.0)
         layout.addWidget(self.series_start_number)
+        self.series_increment = QDoubleSpinBox(parent)
+        self.series_increment.setMinimum(0.00)
+        self.series_increment.setMaximum(99999.0)
+        self.series_increment.setProperty("value", 1.0)
+        self.series_increment.setToolTip('<p>' +
+                         _('The amount by which to increment the series number '
+                           'for successive books. Only applicable when using '
+                           'force series numbers.') + '</p>')
+        self.series_increment.setPrefix('+')
+        layout.addWidget(self.series_increment)
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
         self.widgets.append(w)
-        self.idx_widget.stateChanged.connect(self.check_changed_checkbox)
-        self.force_number.stateChanged.connect(self.check_changed_checkbox)
-        self.series_start_number.valueChanged.connect(self.check_changed_checkbox)
-        self.remove_series.stateChanged.connect(self.check_changed_checkbox)
+        self.idx_widget.stateChanged.connect(self.a_c_checkbox_changed)
+        self.force_number.stateChanged.connect(self.a_c_checkbox_changed)
+        self.series_start_number.valueChanged.connect(self.a_c_checkbox_changed)
+        self.series_increment.valueChanged.connect(self.a_c_checkbox_changed)
+        self.remove_series.stateChanged.connect(self.a_c_checkbox_changed)
+        self.main_widget
         self.ignore_change_signals = False
 
-    def check_changed_checkbox(self):
-        self.a_c_checkbox.setChecked(True)
+    def a_c_checkbox_changed(self):
+        def disable_numbering_checkboxes(idx_widget_enable):
+            if idx_widget_enable:
+                self.idx_widget.setEnabled(True)
+            else:
+                self.idx_widget.setChecked(False)
+                self.idx_widget.setEnabled(False)
+            self.force_number.setChecked(False)
+            self.force_number.setEnabled(False)
+            self.series_start_number.setEnabled(False)
+            self.series_increment.setEnabled(False)
+
+        if self.ignore_change_signals:
+            return
+        self.ignore_change_signals = True
+        apply_changes = False
+        if self.remove_series.isChecked():
+            self.main_widget.setText('')
+            self.main_widget.setEnabled(False)
+            disable_numbering_checkboxes(idx_widget_enable=False)
+            apply_changes = True
+        elif self.main_widget.text():
+            self.remove_series.setEnabled(False)
+            self.idx_widget.setEnabled(True)
+            apply_changes = True
+        else:  # no text, no clear. Basically reinitialize
+            self.main_widget.setEnabled(True)
+            self.remove_series.setEnabled(True)
+            disable_numbering_checkboxes(idx_widget_enable=False)
+            apply_changes = False
+
+        self.force_number.setEnabled(self.idx_widget.isChecked())
+        self.series_start_number.setEnabled(self.force_number.isChecked())
+        self.series_increment.setEnabled(self.force_number.isChecked())
+
+        self.ignore_change_signals = False
+        self.a_c_checkbox.setChecked(apply_changes)
 
     def initialize(self, book_id):
         self.idx_widget.setChecked(False)
@@ -965,16 +1073,17 @@ class BulkSeries(BulkBase):
 
     def getter(self):
         n = unicode(self.main_widget.currentText()).strip()
-        i = self.idx_widget.checkState()
-        f = self.force_number.checkState()
-        s = self.series_start_number.value()
-        r = self.remove_series.checkState()
-        return n, i, f, s, r
+        autonumber = self.idx_widget.checkState()
+        force = self.force_number.checkState()
+        start = self.series_start_number.value()
+        remove = self.remove_series.checkState()
+        increment = self.series_increment.value()
+        return n, autonumber, force, start, remove, increment
 
     def commit(self, book_ids, notify=False):
         if not self.a_c_checkbox.isChecked():
             return
-        val, update_indices, force_start, at_value, clear = self.gui_val
+        val, update_indices, force_start, at_value, clear, increment = self.gui_val
         val = None if clear else self.normalize_ui_val(val)
         if clear or val != '':
             extras = []
@@ -985,7 +1094,7 @@ class BulkSeries(BulkBase):
                 if update_indices:
                     if force_start:
                         s_index = at_value
-                        at_value += 1
+                        at_value += increment
                     elif tweaks['series_index_auto_increment'] != 'const':
                         s_index = self.db.get_next_cc_series_num_for(val, num=self.col_id)
                     else:
@@ -1165,5 +1274,3 @@ bulk_widgets = {
         'series': BulkSeries,
         'enumeration': BulkEnumeration,
 }
-
-

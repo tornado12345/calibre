@@ -10,9 +10,9 @@ from functools import partial
 from future_builtins import map
 
 from PyQt5.Qt import (
-    QSize, QSizePolicy, QUrl, Qt, pyqtProperty, QPainter, QPalette, QBrush,
+    QSize, QSizePolicy, QUrl, Qt, QPainter, QPalette, QBrush,
     QDialog, QColor, QPoint, QImage, QRegion, QIcon, QAction, QMenu,
-    pyqtSignal, QApplication, pyqtSlot, QKeySequence, QMimeData)
+    pyqtSignal, QApplication, pyqtSlot, QKeySequence)
 from PyQt5.QtWebKitWidgets import QWebPage, QWebView
 from PyQt5.QtWebKit import QWebSettings, QWebElement
 
@@ -89,10 +89,6 @@ class Document(QWebPage):  # {{{
         self.setNetworkAccessManager(self.nam)
         self.setObjectName("py_bridge")
         self.in_paged_mode = False
-        # Use this to pass arbitrary JSON encodable objects between python and
-        # javascript. In python get/set the value as: self.bridge_value. In
-        # javascript, get/set the value as: py_bridge.value
-        self.bridge_value = None
         self.first_load = True
         self.jump_to_cfi_listeners = set()
 
@@ -197,12 +193,6 @@ class Document(QWebPage):  # {{{
 
     def add_window_objects(self):
         self.mainFrame().addToJavaScriptWindowObject("py_bridge", self)
-        self.javascript('''
-        Object.defineProperty(py_bridge, 'value', {
-               get : function() { return JSON.parse(this._pass_json_value); },
-               set : function(val) { this._pass_json_value = JSON.stringify(val); }
-        });
-        ''')
         self.loaded_javascript = False
 
     def load_javascript_libraries(self):
@@ -238,16 +228,6 @@ class Document(QWebPage):  # {{{
     def page_turn_requested(self, backwards):
         self.page_turn.emit(bool(backwards))
 
-    def _pass_json_value_getter(self):
-        val = json.dumps(self.bridge_value)
-        return val
-
-    def _pass_json_value_setter(self, value):
-        self.bridge_value = json.loads(unicode(value))
-
-    _pass_json_value = pyqtProperty(str, fget=_pass_json_value_getter,
-            fset=_pass_json_value_setter)
-
     def after_load(self, last_loaded_path=None):
         self.javascript('window.paged_display.read_document_margins()')
         self.set_bottom_padding(0)
@@ -267,19 +247,15 @@ class Document(QWebPage):  # {{{
         self.first_load = False
 
     def colors(self):
-        self.javascript('''
+        ans = json.loads(self.javascript('''
             bs = getComputedStyle(document.body);
-            py_bridge.value = [bs.backgroundColor, bs.color]
-            ''')
-        ans = self.bridge_value
-        return (ans if isinstance(ans, list) else ['white', 'black'])
+            JSON.stringify([bs.backgroundColor, bs.color])
+            '''))
+        return ans if isinstance(ans, list) else ['white', 'black']
 
     def read_anchor_positions(self, use_cache=True):
-        self.bridge_value = tuple(self.index_anchors)
-        self.javascript(u'''
-            py_bridge.value = book_indexing.anchor_positions(py_bridge.value, %s);
-            '''%('true' if use_cache else 'false'))
-        self.anchor_positions = self.bridge_value
+        self.anchor_positions = self.javascript('book_indexing.anchor_positions(%s, %s);' % (
+            json.dumps(tuple(self.index_anchors)), 'true' if use_cache else 'false'))
         if not isinstance(self.anchor_positions, dict):
             # Some weird javascript error happened
             self.anchor_positions = {}
@@ -323,8 +299,8 @@ class Document(QWebPage):  # {{{
     def column_boundaries(self):
         if not self.loaded_javascript:
             return (0, 1)
-        self.javascript(u'py_bridge.value = paged_display.column_boundaries()')
-        return tuple(self.bridge_value)
+        ans = self.javascript(u'JSON.stringify(paged_display.column_boundaries())')
+        return tuple(int(x) for x in json.loads(ans))
 
     def after_resize(self):
         if self.in_paged_mode:
@@ -577,13 +553,10 @@ class DocumentView(QWebView):  # {{{
         self.document.selectionChanged[()].connect(self.selection_changed)
         self.document.animated_scroll_done_signal.connect(self.animated_scroll_done, type=Qt.QueuedConnection)
         self.document.page_turn.connect(self.page_turn_requested)
-        copy_action = self.copy_action
-        copy_action.setIcon(QIcon(I('edit-copy.png')))
-        copy_action.triggered.connect(self.copy, Qt.QueuedConnection)
         d = self.document
         self.unimplemented_actions = list(map(self.pageAction,
-            [d.DownloadImageToDisk, d.OpenLinkInNewWindow, d.DownloadLinkToDisk,
-                d.OpenImageInNewWindow, d.OpenLink, d.Reload, d.InspectElement]))
+            [d.DownloadImageToDisk, d.OpenLinkInNewWindow, d.DownloadLinkToDisk, d.CopyImageUrlToClipboard,
+                d.OpenImageInNewWindow, d.OpenLink, d.Reload, d.InspectElement, d.Copy]))
 
         self.search_online_action = QAction(QIcon(I('search.png')), '', self)
         self.search_online_action.triggered.connect(self.search_online)
@@ -615,17 +588,17 @@ class DocumentView(QWebView):  # {{{
                 'Next Section': self.goto_next_section,
                 'Previous Section': self.goto_previous_section,
         }
-        for name, key in [(_('Next Section'), 'Next Section'),
-                (_('Previous Section'), 'Previous Section'),
+        for name, key in [(_('Next section'), 'Next Section'),
+                (_('Previous section'), 'Previous Section'),
                 (None, None),
-                (_('Document Start'), 'Document Top'),
-                (_('Document End'), 'Document Bottom'),
+                (_('Document start'), 'Document Top'),
+                (_('Document end'), 'Document Bottom'),
                 (None, None),
-                (_('Section Start'), 'Section Top'),
-                (_('Section End'), 'Section Bottom'),
+                (_('Section start'), 'Section Top'),
+                (_('Section end'), 'Section Bottom'),
                 (None, None),
-                (_('Next Page'), 'Next Page'),
-                (_('Previous Page'), 'Previous Page')]:
+                (_('Next page'), 'Next Page'),
+                (_('Previous page'), 'Previous Page')]:
             if key is None:
                 m.addSeparator()
             else:
@@ -651,10 +624,6 @@ class DocumentView(QWebView):  # {{{
     def goto_document_end(self, *args):
         if self.manager is not None:
             self.manager.goto_end()
-
-    @property
-    def copy_action(self):
-        return self.pageAction(self.document.Copy)
 
     def animated_scroll_done(self):
         if self.manager is not None:
@@ -692,20 +661,13 @@ class DocumentView(QWebView):  # {{{
     def selected_text(self):
         return self.document.selectedText().replace(u'\u00ad', u'').strip()
 
-    def copy(self):
-        self.document.triggerAction(self.document.Copy)
-        c = QApplication.clipboard()
-        md = c.mimeData()
-        if iswindows:
-            nmd = QMimeData()
-            nmd.setHtml(md.html().replace(u'\u00ad', ''))
-            md = nmd
-        md.setText(self.selected_text)
-        QApplication.clipboard().setMimeData(md)
+    @property
+    def selected_html(self):
+        return self.document.selectedHtml().replace(u'\u00ad', u'').strip()
 
     def selection_changed(self):
         if self.manager is not None:
-            self.manager.selection_changed(self.selected_text)
+            self.manager.selection_changed(self.selected_text, self.selected_html)
 
     def _selectedText(self):
         t = unicode(self.selectedText()).strip()
@@ -748,7 +710,14 @@ class DocumentView(QWebView):  # {{{
         for action in self.unimplemented_actions:
             menu.removeAction(action)
 
+        if self.manager is not None and self.manager.action_copy.isEnabled():
+            menu.addAction(self.manager.action_copy)
+
         if not img.isNull():
+            cia = self.pageAction(self.document.CopyImageToClipboard)
+            for action in menu.actions():
+                if action is cia:
+                    action.setText(_('&Copy image'))
             menu.addAction(self.view_image_action)
         if table is not None:
             self.document.mark_element.emit(table)
@@ -786,7 +755,7 @@ class DocumentView(QWebView):  # {{{
                 menu.addAction(self.manager.action_font_size_smaller)
 
         menu.addSeparator()
-        menu.addAction(_('Inspect'), self.inspect)
+        menu.addAction(_('I&nspect'), self.inspect)
 
         if not text and img.isNull() and self.manager is not None:
             menu.addSeparator()
@@ -883,6 +852,9 @@ class DocumentView(QWebView):  # {{{
             self.manager.link_clicked(url)
 
     def footnote_link_clicked(self, qurl):
+        if qurl.scheme() in ('http', 'https'):
+            self.link_clicked(qurl)
+            return
         path = qurl.toLocalFile()
         self.link_clicked(self.as_url(path))
 
@@ -1400,7 +1372,8 @@ class DocumentView(QWebView):  # {{{
             if self.manager is not None:
                 self.manager.forward(None)
         elif event.matches(QKeySequence.Copy):
-            self.copy()
+            if self.manager is not None:
+                self.manager.copy()
         else:
             handled = False
         return handled

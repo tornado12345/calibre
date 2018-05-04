@@ -128,13 +128,16 @@ class Connection(object):  # {{{
         except Exception:
             # In case addr is None, which can occassionally happen
             self.remote_addr = self.remote_port = None
+        self.is_local_connection = self.remote_addr in ('127.0.0.1', '::1')
         self.orig_send_bufsize = self.send_bufsize = 4096
         self.tdir = tdir
-        self.ssl_context = ssl_context
         self.wait_for = READ
         self.response_started = False
         self.read_buffer = ReadBuffer()
         self.handle_event = None
+        self.ssl_context = ssl_context
+        self.ssl_handshake_done = False
+        self.ssl_terminated = False
         if self.ssl_context is not None:
             self.ready = False
             self.socket = self.ssl_context.wrap_socket(socket, server_side=True, do_handshake_on_connect=False)
@@ -177,17 +180,21 @@ class Connection(object):  # {{{
         except ssl.SSLWantWriteError:
             self.set_state(WRITE, self.do_ssl_handshake)
         else:
+            self.ssl_handshake_done = True
             self.connection_ready()
 
     def send(self, data):
         try:
-            ret = self.socket.send(data)
+            ret = self.socket.send(data) if self.ssl_context is None else self.socket.write(data)
             self.last_activity = monotonic()
             return ret
+        except ssl.SSLWantWriteError:
+            return 0
         except socket.error as e:
             if e.errno in socket_errors_nonblocking or e.errno in socket_errors_eintr:
                 return 0
             elif e.errno in socket_errors_socket_closed:
+                self.log.error('Failed to send all data in state:', self.state_description, 'with error:', e)
                 self.ready = False
                 return 0
             raise
@@ -208,6 +215,8 @@ class Connection(object):  # {{{
                 self.ready = False
                 return b''
             return data
+        except ssl.SSLWantReadError:
+            return b''
         except socket.error as e:
             if e.errno in socket_errors_nonblocking or e.errno in socket_errors_eintr:
                 return b''
@@ -231,6 +240,8 @@ class Connection(object):  # {{{
                 self.ready = False
                 return 0
             return bytes_read
+        except ssl.SSLWantReadError:
+            return 0
         except socket.error as e:
             if e.errno in socket_errors_nonblocking or e.errno in socket_errors_eintr:
                 return 0
@@ -247,6 +258,25 @@ class Connection(object):  # {{{
                 # a closed connection is indicated by signaling
                 # a read condition, and having recv() return 0.
                 self.ready = False
+        except ssl.SSLWantReadError:
+            return
+        except socket.error as e:
+            if e.errno in socket_errors_nonblocking or e.errno in socket_errors_eintr:
+                return
+            if e.errno in socket_errors_socket_closed:
+                self.ready = False
+                return
+            raise
+
+    def drain_ssl_buffer(self):
+        try:
+            self.read_buffer.recv_from(self.socket)
+        except ssl.SSLWantReadError:
+            return
+        except ssl.SSLError as e:
+            self.log.error('Error while reading SSL data from client: %s' % as_unicode(e))
+            self.ready = False
+            return
         except socket.error as e:
             if e.errno in socket_errors_nonblocking or e.errno in socket_errors_eintr:
                 return
@@ -332,6 +362,7 @@ class ServerLoop(object):
         if self.opts.ssl_certfile is not None and self.opts.ssl_keyfile is not None:
             self.ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             self.ssl_context.load_cert_chain(certfile=self.opts.ssl_certfile, keyfile=self.opts.ssl_keyfile)
+            self.ssl_context.set_servername_callback(self.on_ssl_servername)
 
         self.pre_activated_socket = None
         if self.opts.allow_socket_preallocation:
@@ -344,6 +375,14 @@ class ServerLoop(object):
         self.create_control_connection()
         self.pool = ThreadPool(self.log, self.job_completed, count=self.opts.worker_count)
         self.plugin_pool = PluginPool(self, plugins)
+
+    def on_ssl_servername(self, socket, server_name, ssl_context):
+        c = self.connection_map.get(socket.fileno())
+        if getattr(c, 'ssl_handshake_done', False):
+            c.ready = False
+            c.ssl_terminated = True
+            # We do not allow client initiated SSL renegotiation
+            return ssl.ALERT_DESCRIPTION_NO_RENEGOTIATION
 
     def create_control_connection(self):
         self.control_in, self.control_out = create_sock_pair()
@@ -387,9 +426,7 @@ class ServerLoop(object):
         if not self.socket:
             raise socket.error(msg)
 
-    def serve_forever(self):
-        """ Listen for incoming connections. """
-
+    def initialize_socket(self):
         if self.pre_activated_socket is None:
             try:
                 self.do_bind()
@@ -408,6 +445,7 @@ class ServerLoop(object):
             self.pre_activated_socket = None
             self.setup_socket()
 
+    def serve(self):
         self.connection_map = {}
         self.socket.listen(min(socket.SOMAXCONN, 128))
         self.bound_address = ba = self.socket.getsockname()
@@ -432,6 +470,11 @@ class ServerLoop(object):
                 except:
                     self.log.exception('Error in ServerLoop.tick')
             self.shutdown()
+
+    def serve_forever(self):
+        """ Listen for incoming connections. """
+        self.initialize_socket()
+        self.serve()
 
     def setup_socket(self):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -459,7 +502,8 @@ class ServerLoop(object):
 
     def tick(self):
         now = monotonic()
-        read_needed, write_needed, readable, remove = [], [], [], []
+        read_needed, write_needed, readable, remove, close_needed = [], [], [], [], []
+        has_ssl = self.ssl_context is not None
         for s, conn in self.connection_map.iteritems():
             if now - conn.last_activity > self.opts.timeout:
                 if conn.handle_timeout():
@@ -468,16 +512,28 @@ class ServerLoop(object):
                     remove.append((s, conn))
                     continue
             wf = conn.wait_for
-            if wf is READ:
-                (readable if conn.read_buffer.has_data else read_needed).append(s)
+            if wf is READ or wf is RDWR:
+                if wf is RDWR:
+                    write_needed.append(s)
+                if conn.read_buffer.has_data:
+                    readable.append(s)
+                else:
+                    if has_ssl:
+                        conn.drain_ssl_buffer()
+                        if conn.ready:
+                            (readable if conn.read_buffer.has_data else read_needed).append(s)
+                        else:
+                            close_needed.append((s, conn))
+                    else:
+                        read_needed.append(s)
             elif wf is WRITE:
                 write_needed.append(s)
-            elif wf is RDWR:
-                write_needed.append(s)
-                (readable if conn.read_buffer.has_data else read_needed).append(s)
 
         for s, conn in remove:
             self.log('Closing connection because of extended inactivity: %s' % conn.state_description)
+            self.close(s, conn)
+
+        for x, conn in close_needed:
             self.close(s, conn)
 
         if readable:
@@ -525,18 +581,23 @@ class ServerLoop(object):
                             self.close(s, conn)
             except Exception as e:
                 ignore.add(s)
-                self.log.exception('Unhandled exception in state: %s' % conn.state_description)
-                if conn.ready:
-                    if conn.response_started:
-                        self.close(s, conn)
-                    else:
-                        try:
-                            conn.report_unhandled_exception(e, traceback.format_exc())
-                        except Exception:
-                            self.close(s, conn)
-                else:
-                    self.log.error('Error in SSL handshake, terminating connection: %s' % as_unicode(e))
+                ssl_terminated = getattr(conn, 'ssl_terminated', False)
+                if ssl_terminated:
+                    self.log.warn('Client tried to initiate SSL renegotiation, closing connection')
                     self.close(s, conn)
+                else:
+                    self.log.exception('Unhandled exception in state: %s' % conn.state_description)
+                    if conn.ready:
+                        if conn.response_started:
+                            self.close(s, conn)
+                        else:
+                            try:
+                                conn.report_unhandled_exception(e, traceback.format_exc())
+                            except Exception:
+                                self.close(s, conn)
+                    else:
+                        self.log.error('Error in SSL handshake, terminating connection: %s' % as_unicode(e))
+                        self.close(s, conn)
 
     def wakeup(self):
         self.control_in.sendall(WAKEUP)

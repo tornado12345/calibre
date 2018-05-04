@@ -121,6 +121,7 @@ class Styles(object):
         self.default_styles = {}
         self.tables = tables
         self.numbering_style_links = {}
+        self.default_paragraph_style = self.default_character_style = None
 
     def __iter__(self):
         for s in self.id_map.itervalues():
@@ -137,32 +138,32 @@ class Styles(object):
 
     def __call__(self, root, fonts, theme):
         self.fonts, self.theme = fonts, theme
-        for s in self.namespace.XPath('//w:style')(root):
-            s = Style(self.namespace, s)
-            if s.style_id:
-                self.id_map[s.style_id] = s
-            if s.is_default:
-                self.default_styles[s.style_type] = s
-            if getattr(s, 'numbering_style_link', None) is not None:
-                self.numbering_style_links[s.style_id] = s.numbering_style_link
-
         self.default_paragraph_style = self.default_character_style = None
+        if root is not None:
+            for s in self.namespace.XPath('//w:style')(root):
+                s = Style(self.namespace, s)
+                if s.style_id:
+                    self.id_map[s.style_id] = s
+                if s.is_default:
+                    self.default_styles[s.style_type] = s
+                if getattr(s, 'numbering_style_link', None) is not None:
+                    self.numbering_style_links[s.style_id] = s.numbering_style_link
 
-        for dd in self.namespace.XPath('./w:docDefaults')(root):
-            for pd in self.namespace.XPath('./w:pPrDefault')(dd):
-                for pPr in self.namespace.XPath('./w:pPr')(pd):
-                    ps = ParagraphStyle(self.namespace, pPr)
-                    if self.default_paragraph_style is None:
-                        self.default_paragraph_style = ps
-                    else:
-                        self.default_paragraph_style.update(ps)
-            for pd in self.namespace.XPath('./w:rPrDefault')(dd):
-                for pPr in self.namespace.XPath('./w:rPr')(pd):
-                    ps = RunStyle(self.namespace, pPr)
-                    if self.default_character_style is None:
-                        self.default_character_style = ps
-                    else:
-                        self.default_character_style.update(ps)
+            for dd in self.namespace.XPath('./w:docDefaults')(root):
+                for pd in self.namespace.XPath('./w:pPrDefault')(dd):
+                    for pPr in self.namespace.XPath('./w:pPr')(pd):
+                        ps = ParagraphStyle(self.namespace, pPr)
+                        if self.default_paragraph_style is None:
+                            self.default_paragraph_style = ps
+                        else:
+                            self.default_paragraph_style.update(ps)
+                for pd in self.namespace.XPath('./w:rPrDefault')(dd):
+                    for pPr in self.namespace.XPath('./w:rPr')(pd):
+                        ps = RunStyle(self.namespace, pPr)
+                        if self.default_character_style is None:
+                            self.default_character_style = ps
+                        else:
+                            self.default_character_style.update(ps)
 
         def resolve(s, p):
             if p is not None:
@@ -338,7 +339,7 @@ class Styles(object):
             has_links = '1' in {r.get('is-link', None) for r in runs}
             char_styles = [self.resolve_run(r) for r in runs]
             block_style = self.resolve_paragraph(p)
-            for prop in ('font_family', 'font_size', 'color'):
+            for prop in ('font_family', 'font_size', 'cs_font_family', 'cs_font_size', 'color'):
                 if has_links and prop == 'color':
                     # We cannot promote color as browser rendering engines will
                     # override the link color setting it to blue, unless the

@@ -20,6 +20,7 @@ from PyQt5.Qt import (
 
 from calibre import prepare_string_for_xml, human_readable
 from calibre.constants import iswindows
+from calibre.ebooks.oeb.polish.cover import get_raster_cover_name
 from calibre.ebooks.oeb.polish.utils import lead_text, guess_type
 from calibre.gui2 import error_dialog, choose_files, choose_save_file, info_dialog, choose_images
 from calibre.gui2.tweak_book import tprefs, current_container
@@ -122,7 +123,7 @@ class RationalizeFolders(Dialog):  # {{{
             l.addWidget(le, i + 1, 1)
         self.la2 = la = QLabel(_(
             'Note that this will only arrange files inside the book,'
-            ' it will not affect how they are displayed in the File Browser'))
+            ' it will not affect how they are displayed in the File browser'))
         la.setWordWrap(True)
         l.addWidget(la, i + 2, 0, 1, -1)
         l.addWidget(self.bb, i + 3, 0, 1, -1)
@@ -188,6 +189,7 @@ class ImportForeign(Dialog):  # {{{
 
     def setup_ui(self):
         self.l = l = QFormLayout(self)
+        l.setFieldGrowthPolicy(l.AllNonFixedFieldsGrow)
         self.setLayout(l)
 
         la = self.la = QLabel(_(
@@ -205,7 +207,7 @@ class ImportForeign(Dialog):  # {{{
         b.setIcon(QIcon(I('document_open.png')))
         b.setText(_('Choose file'))
         h1.addWidget(b)
-        l.addRow(_('Source file'), h1)
+        l.addRow(_('Source file:'), h1)
         b.clicked.connect(self.choose_source)
         b.setFocus(Qt.OtherFocusReason)
 
@@ -217,7 +219,7 @@ class ImportForeign(Dialog):  # {{{
         b.setIcon(QIcon(I('document_open.png')))
         b.setText(_('Choose file'))
         h1.addWidget(b)
-        l.addRow(_('Destination file'), h1)
+        l.addRow(_('Destination file:'), h1)
         b.clicked.connect(self.choose_destination)
 
         l.addRow(self.bb)
@@ -622,7 +624,7 @@ class InsertLink(Dialog):
         self.container = container
         self.source_name = source_name
         self.initial_text = initial_text
-        Dialog.__init__(self, _('Insert Hyperlink'), 'insert-hyperlink', parent=parent)
+        Dialog.__init__(self, _('Insert hyperlink'), 'insert-hyperlink', parent=parent)
         self.anchor_cache = {}
 
     def sizeHint(self):
@@ -743,7 +745,7 @@ class InsertSemantics(Dialog):
             for item in container.opf_xpath('//opf:guide/opf:reference[@href and @type]')}
         self.final_type_map = self.original_type_map.copy()
         self.create_known_type_map()
-        Dialog.__init__(self, _('Set Semantics'), 'insert-semantics', parent=parent)
+        Dialog.__init__(self, _('Set semantics'), 'insert-semantics', parent=parent)
 
     def sizeHint(self):
         return QSize(800, 600)
@@ -762,8 +764,8 @@ class InsertSemantics(Dialog):
             'dedication': _('Dedication'),
             'epigraph': _('Epigraph'),
             'foreword': _('Foreword'),
-            'loi': _('List of Illustrations'),
-            'lot': _('List of Tables'),
+            'loi': _('List of illustrations'),
+            'lot': _('List of tables'),
             'notes': _('Notes'),
             'preface': _('Preface'),
             'text': _('Text'),
@@ -831,7 +833,7 @@ class InsertSemantics(Dialog):
         d = info_dialog(self, _('About semantics'), _(
             'Semantics refer to additional information about specific locations in the book.'
             ' For example, you can specify that a particular location is the dedication or the preface'
-            ' or the table of contents and so on.\n\nFirst choose the type of semantic information, then'
+            ' or the Table of Contents and so on.\n\nFirst choose the type of semantic information, then'
             ' choose a file and optionally a location within the file to point to.\n\nThe'
             ' semantic information will be written in the <guide> section of the opf file.'))
         d.resize(d.sizeHint())
@@ -931,7 +933,7 @@ class FilterCSS(Dialog):  # {{{
 
     def __init__(self, current_name=None, parent=None):
         self.current_name = current_name
-        Dialog.__init__(self, _('Filter Style Information'), 'filter-css', parent=parent)
+        Dialog.__init__(self, _('Filter style information'), 'filter-css', parent=parent)
 
     def setup_ui(self):
         from calibre.gui2.convert.look_and_feel_ui import Ui_Form
@@ -1091,6 +1093,11 @@ class AddCover(Dialog):
         b.setIcon(QIcon(I('document_open.png')))
         self.names.setFocus(Qt.OtherFocusReason)
         self.names.selectionModel().currentChanged.connect(self.current_image_changed)
+        cname = get_raster_cover_name(self.container)
+        if cname:
+            row = self.names.model().find_name(cname)
+            if row > -1:
+                self.names.setCurrentIndex(self.names.model().index(row))
 
     def double_clicked(self):
         self.accept()

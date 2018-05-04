@@ -10,7 +10,7 @@ from functools import partial
 from collections import defaultdict
 from copy import deepcopy
 
-from calibre.utils.lock import LockError, ExclusiveFile
+from calibre.utils.lock import ExclusiveFile
 from calibre.constants import config_dir, CONFIG_DIR_MODE
 
 plugin_dir = os.path.join(config_dir, 'plugins')
@@ -278,45 +278,36 @@ class Config(ConfigInterface):
     def parse(self):
         src = ''
         if os.path.exists(self.config_file_path):
-            try:
-                with ExclusiveFile(self.config_file_path) as f:
-                    try:
-                        src = f.read().decode('utf-8')
-                    except ValueError:
-                        print "Failed to parse", self.config_file_path
-                        traceback.print_exc()
-            except LockError:
-                raise IOError('Could not lock config file: %s'%self.config_file_path)
+            with ExclusiveFile(self.config_file_path) as f:
+                try:
+                    src = f.read().decode('utf-8')
+                except ValueError:
+                    print "Failed to parse", self.config_file_path
+                    traceback.print_exc()
         return self.option_set.parse_string(src)
 
     def as_string(self):
         if not os.path.exists(self.config_file_path):
             return ''
-        try:
-            with ExclusiveFile(self.config_file_path) as f:
-                return f.read().decode('utf-8')
-        except LockError:
-            raise IOError('Could not lock config file: %s'%self.config_file_path)
+        with ExclusiveFile(self.config_file_path) as f:
+            return f.read().decode('utf-8')
 
     def set(self, name, val):
         if not self.option_set.has_option(name):
             raise ValueError('The option %s is not defined.'%name)
-        try:
-            if not os.path.exists(config_dir):
-                make_config_dir()
-            with ExclusiveFile(self.config_file_path) as f:
-                src = f.read()
-                opts = self.option_set.parse_string(src)
-                setattr(opts, name, val)
-                footer = self.option_set.get_override_section(src)
-                src = self.option_set.serialize(opts)+ '\n\n' + footer + '\n'
-                f.seek(0)
-                f.truncate()
-                if isinstance(src, unicode):
-                    src = src.encode('utf-8')
-                f.write(src)
-        except LockError:
-            raise IOError('Could not lock config file: %s'%self.config_file_path)
+        if not os.path.exists(config_dir):
+            make_config_dir()
+        with ExclusiveFile(self.config_file_path) as f:
+            src = f.read()
+            opts = self.option_set.parse_string(src)
+            setattr(opts, name, val)
+            footer = self.option_set.get_override_section(src)
+            src = self.option_set.serialize(opts)+ '\n\n' + footer + '\n'
+            f.seek(0)
+            f.truncate()
+            if isinstance(src, unicode):
+                src = src.encode('utf-8')
+            f.write(src)
 
 
 class StringConfig(ConfigInterface):
@@ -399,7 +390,7 @@ def create_global_prefs(conf_obj=None):
     c.add_opt('language', default=None,
               help=_('The language in which to display the user interface'))
     c.add_opt('output_format', default='EPUB',
-              help=_('The default output format for ebook conversions.'))
+              help=_('The default output format for e-book conversions.'))
     c.add_opt('input_format_order', default=['EPUB', 'AZW3', 'MOBI', 'LIT', 'PRC',
         'FB2', 'HTML', 'HTM', 'XHTM', 'SHTML', 'XHTML', 'ZIP', 'DOCX', 'ODT', 'RTF', 'PDF',
         'TXT'],
@@ -425,7 +416,7 @@ def create_global_prefs(conf_obj=None):
     # these are here instead of the gui preferences because calibredb and
     # calibre server can execute searches
     c.add_opt('saved_searches', default={}, help=_('List of named saved searches'))
-    c.add_opt('user_categories', default={}, help=_('User-created tag browser categories'))
+    c.add_opt('user_categories', default={}, help=_('User-created Tag browser categories'))
     c.add_opt('manage_device_metadata', default='manual',
         help=_('How and when calibre updates metadata on the device.'))
     c.add_opt('limit_search_columns', default=False,

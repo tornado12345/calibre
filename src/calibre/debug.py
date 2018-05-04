@@ -12,16 +12,39 @@ from calibre.constants import iswindows
 from calibre import prints
 
 
+def get_debug_executable():
+    if hasattr(sys, 'frameworks_dir'):
+        base = os.path.dirname(sys.frameworks_dir)
+        if 'calibre-debug.app' not in base:
+            base = os.path.join(base, 'calibre-debug.app', 'Contents')
+        return os.path.join(base, 'MacOS', 'calibre-debug')
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(os.path.abspath(sys.executable)), 'calibre-debug' + ('.exe' if iswindows else ''))
+    return 'calibre-debug'
+
+
+def run_calibre_debug(*args, **kw):
+    import subprocess
+    creationflags = 0
+    if iswindows:
+        import win32process
+        creationflags = win32process.CREATE_NO_WINDOW
+    exe = get_debug_executable()
+    cmd = [exe] + list(args)
+    kw['creationflags'] = creationflags
+    return subprocess.Popen(cmd, **kw)
+
+
 def option_parser():
     parser = OptionParser(usage=_('''\
 {0}
 
 Various command line interfaces useful for debugging calibre. With no options,
-this command starts an embedded python interpreter. You can also run the main
+this command starts an embedded Python interpreter. You can also run the main
 calibre GUI, the calibre viewer and the calibre editor in debug mode.
 
 It also contains interfaces to various bits of calibre that do not have
-dedicated command line tools, such as font subsetting, the ebook diff tool and so
+dedicated command line tools, such as font subsetting, the e-book diff tool and so
 on.
 
 You can also use %prog to run standalone scripts. To do that use it like this:
@@ -30,8 +53,8 @@ You can also use %prog to run standalone scripts. To do that use it like this:
 
 Everything after the -- is passed to the script.
 ''').format(_('%prog [options]'), '%prog myscript.py -- --option1 --option2 file1 file2 ...'))
-    parser.add_option('-c', '--command', help=_('Run python code.'))
-    parser.add_option('-e', '--exec-file', help=_('Run the python code in file.'))
+    parser.add_option('-c', '--command', help=_('Run Python code.'))
+    parser.add_option('-e', '--exec-file', help=_('Run the Python code in file.'))
     parser.add_option('-f', '--subset-font', action='store_true', default=False,
                       help=_('Subset the specified font. Use -- after this option to pass option to the font subsetting program.'))
     parser.add_option('-d', '--debug-device-driver', default=False, action='store_true',
@@ -44,7 +67,7 @@ Everything after the -- is passed to the script.
                       ' specified path. For internal use only, use the -g'
                       ' option to run the GUI in debug mode'))
     parser.add_option('-w', '--viewer',  default=False, action='store_true',
-                      help=_('Run the ebook viewer in debug mode'))
+                      help=_('Run the E-book viewer in debug mode'))
     parser.add_option('--paths', default=False, action='store_true',
             help=_('Output the paths necessary to setup the calibre environment'))
     parser.add_option('--add-simple-plugin', default=None,
@@ -58,13 +81,18 @@ Everything after the -- is passed to the script.
             default=False,
             help=_('Inspect the MOBI file(s) at the specified path(s)'))
     parser.add_option('-t', '--edit-book', action='store_true',
-            help=_('Launch the calibre Edit Book tool in debug mode.'))
-    parser.add_option('-x', '--explode-book', default=None,
-            help=_('Explode the book (exports the book as a collection of HTML '
+            help=_('Launch the calibre "Edit book" tool in debug mode.'))
+    parser.add_option('-x', '--explode-book', default=False, action='store_true',
+            help=_('Explode the book into the specified directory.\nUsage: '
+            '-x file.epub output_dir\n'
+            'Exports the book as a collection of HTML '
             'files and metadata, which you can edit using standard HTML '
-            'editing tools, and then rebuilds the file from the edited HTML. '
-            'Makes no additional changes to the HTML, unlike a full calibre '
-            'conversion).'))
+            'editing tools. Works with EPUB, AZW3, HTMLZ and DOCX files.'))
+    parser.add_option('-i', '--implode-book', default=False, action='store_true', help=_(
+        'Implode a previously exploded book.\nUsage: -i output_dir file.epub\n'
+        'Imports the book from the files in output_dir which must have'
+        ' been created by a previous call to --explode-book. Be sure to'
+        ' specify the same file type as was used when exploding.'))
     parser.add_option('--export-all-calibre-data', default=False, action='store_true',
         help=_('Export all calibre data (books/settings/plugins)'))
     parser.add_option('--import-calibre-data', default=False, action='store_true',
@@ -85,8 +113,6 @@ Everything after the -- is passed to the script.
         'calibre-debug --diff file1 file2'))
     parser.add_option('--default-programs', default=None, choices=['register', 'unregister'],
                           help=_('(Un)register calibre from Windows Default Programs.') + ' --default-programs=(register|unregister)')
-    parser.add_option('--new-server', action='store_true',
-        help='Run the new calibre content server. Any options specified after a -- will be passed to the server.')
 
     return parser
 
@@ -160,6 +186,7 @@ def print_basic_debug_info(out=None):
     import platform
     from calibre.constants import (__appname__, get_version, isportable, isosx,
                                    isfrozen, is64bit)
+    from calibre.utils.localization import set_translators
     out(__appname__, get_version(), 'Portable' if isportable else '',
         'embedded-python:', isfrozen, 'is64bit:', is64bit)
     out(platform.platform(), platform.system(), platform.architecture())
@@ -182,6 +209,7 @@ def print_basic_debug_info(out=None):
             out('Linux:', platform.linux_distribution())
     except:
         pass
+    out('Interface language:', type(u'')(set_translators.lang))
     from calibre.customize.ui import has_external_plugins, initialized_plugins
     if has_external_plugins():
         names = ('{0} {1}'.format(p.name, p.version) for p in initialized_plugins() if getattr(p, 'plugin_path', None) is not None)
@@ -229,8 +257,7 @@ def main(args=sys.argv):
     opts, args = option_parser().parse_args(args)
     if opts.gui:
         from calibre.gui_launch import calibre
-        print_basic_debug_info()
-        calibre(['calibre'])
+        calibre(['calibre'] + args[1:])
     elif opts.gui_debug is not None:
         run_debug_gui(opts.gui_debug)
     elif opts.viewer:
@@ -255,9 +282,14 @@ def main(args=sys.argv):
     elif opts.edit_book:
         from calibre.gui_launch import ebook_edit
         ebook_edit(['ebook-edit'] + args[1:])
-    elif opts.explode_book:
-        from calibre.ebooks.tweak import tweak
-        tweak(opts.explode_book)
+    elif opts.explode_book or opts.implode_book:
+        from calibre.ebooks.tweak import explode, implode
+        try:
+            a1, a2 = args[1:]
+        except Exception:
+            raise SystemExit('Must provide exactly two arguments')
+        f = explode if opts.explode_book else implode
+        f(a1, a2)
     elif opts.test_build:
         from calibre.test_build import test
         test()
@@ -288,9 +320,6 @@ def main(args=sys.argv):
             from calibre.utils.winreg.default_programs import unregister as func
         print 'Running', func.__name__, '...'
         func()
-    elif opts.new_server:
-        from calibre.srv.standalone import main
-        main(args)
     elif opts.export_all_calibre_data:
         from calibre.utils.exim import run_exporter
         run_exporter()
@@ -317,6 +346,7 @@ def main(args=sys.argv):
         ipython()
 
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())

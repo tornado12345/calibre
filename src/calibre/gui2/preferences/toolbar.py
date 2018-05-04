@@ -11,8 +11,9 @@ from PyQt5.Qt import QAbstractListModel, Qt, QIcon, \
         QItemSelectionModel
 
 from calibre.gui2.preferences.toolbar_ui import Ui_Form
-from calibre.gui2 import gprefs, warning_dialog
-from calibre.gui2.preferences import ConfigWidgetBase, test_widget
+from calibre.gui2 import gprefs, warning_dialog, error_dialog
+from calibre.gui2.preferences import ConfigWidgetBase, test_widget, AbortCommit
+from calibre.utils.icu import primary_sort_key
 
 
 class FakeAction(object):
@@ -104,7 +105,13 @@ class AllModel(BaseModel):
         all = [x for x in all if x not in current] + [None]
         all = [self.name_to_action(x, self.gui) for x in all]
         all = [x for x in all if self.key not in x.dont_add_to]
-        all.sort()
+
+        def sk(ac):
+            try:
+                return primary_sort_key(ac.action_spec[0])
+            except Exception:
+                pass
+        all.sort(key=sk)
         return all
 
     def add(self, names):
@@ -234,9 +241,10 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             ('menubar-device', _('The menubar when a device is connected')),
             ('context-menu', _('The context menu for the books in the '
                 'calibre library')),
+            ('context-menu-split', _('The context menu for the split book list')),
             ('context-menu-device', _('The context menu for the books on '
                 'the device')),
-            ('context-menu-cover-browser', _('The context menu for the cover '
+            ('context-menu-cover-browser', _('The context menu for the Cover '
                 'browser')),
             ]
 
@@ -335,11 +343,13 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         lm_in_toolbar = self.models['toolbar-device'][1].has_action('Location Manager')
         lm_in_menubar = self.models['menubar-device'][1].has_action('Location Manager')
         if not pref_in_toolbar and not pref_in_menubar:
-            self.models['menubar'][1].add(['Preferences'])
+            error_dialog(self, _('Preferences missing'), _(
+                'The Preferences action must be in either the main toolbar or the menubar.'), show=True)
+            raise AbortCommit()
         if not lm_in_toolbar and not lm_in_menubar:
-            m = self.models['toolbar-device'][1]
-            m.add(['Location Manager'])
-            m.move(m.index(m.rowCount(None)-1), 5-m.rowCount(None))
+            error_dialog(self, _('Location manager missing'), _(
+                'The Location manager must be in either the main toolbar or the menubar when a device is connected.'), show=True)
+            raise AbortCommit()
 
         # Save data.
         for am, cm in self.models.values():
@@ -358,6 +368,6 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
 
 if __name__ == '__main__':
-    from PyQt5.Qt import QApplication
-    app = QApplication([])
+    from calibre.gui2 import Application
+    app = Application([])
     test_widget('Interface', 'Toolbar')

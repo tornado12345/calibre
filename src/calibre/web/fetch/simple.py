@@ -7,10 +7,12 @@ __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 Fetch a webpage and its links recursively. The webpages are saved to disk in
 UTF-8 encoding with any charset declarations removed.
 '''
-import sys, socket, os, urlparse, re, time, copy, urllib2, threading, traceback
+import sys, socket, os, urlparse, re, time, urllib2, threading, traceback
 from urllib import url2pathname, quote
 from httplib import responses
 from base64 import b64decode
+
+from html5_parser.soup import set_soup_module, parse
 
 from calibre import browser, relpath, unicode_path
 from calibre.constants import filesystem_encoding, iswindows
@@ -153,7 +155,8 @@ class RecursiveFetcher(object):
         self.preprocess_raw_html = getattr(options, 'preprocess_raw_html',
                 lambda raw, url: raw)
         self.prepreprocess_html_ext = getattr(options, 'skip_ad_pages', lambda soup: None)
-        self.postprocess_html_ext= getattr(options, 'postprocess_html', None)
+        self.postprocess_html_ext = getattr(options, 'postprocess_html', None)
+        self.preprocess_image_ext = getattr(options, 'preprocess_image', None)
         self._is_link_wanted     = getattr(options, 'is_link_wanted',
                 default_is_link_wanted)
         self.compress_news_images_max_size = getattr(options, 'compress_news_images_max_size', None)
@@ -166,20 +169,24 @@ class RecursiveFetcher(object):
         self.job_info = job_info
 
     def get_soup(self, src, url=None):
-        nmassage = copy.copy(BeautifulSoup.MARKUP_MASSAGE)
+        nmassage = []
         nmassage.extend(self.preprocess_regexps)
-        # Some websites have buggy doctype declarations that mess up beautifulsoup
-        nmassage += [(re.compile(r'<!DOCTYPE .+?>', re.DOTALL|re.IGNORECASE), lambda m: '')]
         # Remove comments as they can leave detritus when extracting tags leaves
         # multiple nested comments
         nmassage.append((re.compile(r'<!--.*?-->', re.DOTALL), lambda m: ''))
         usrc = xml_to_unicode(src, self.verbose, strip_encoding_pats=True)[0]
         usrc = self.preprocess_raw_html(usrc, url)
-        soup = BeautifulSoup(usrc, markupMassage=nmassage)
+        for pat, repl in nmassage:
+            usrc = pat.sub(repl, usrc)
+        set_soup_module(sys.modules[BeautifulSoup.__module__])
+        soup = parse(usrc, return_root=False)
 
         replace = self.prepreprocess_html_ext(soup)
         if replace is not None:
-            soup = BeautifulSoup(xml_to_unicode(replace, self.verbose, strip_encoding_pats=True)[0], markupMassage=nmassage)
+            replace = xml_to_unicode(replace, self.verbose, strip_encoding_pats=True)[0]
+            for pat, repl in nmassage:
+                replace = pat.sub(repl, replace)
+            soup = parse(replace, return_root=False)
 
         if self.keep_only_tags:
             body = Tag(soup, 'body')
@@ -396,6 +403,9 @@ class RecursiveFetcher(object):
             fname = ascii_filename('img'+str(c))
             if isinstance(fname, unicode):
                 fname = fname.encode('ascii', 'replace')
+            data = self.preprocess_image_ext(data, iurl) if self.preprocess_image_ext is not None else data
+            if data is None:
+                continue
             itype = what(None, data)
             if itype == 'svg' or (itype is None and b'<svg' in data[:1024]):
                 # SVG image

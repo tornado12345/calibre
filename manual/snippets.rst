@@ -25,8 +25,8 @@ The following discussion of the built-in snippets should help illustrate the
 power of the snippets system.
 
 .. note:: 
-    You can also use snippets in the text entry fields in the Search and
-    Replace panel, however, placeholders (using |ct| to jump around) will not
+    You can also use snippets in the text entry fields in the :guilabel:`Search & replace`
+    panel, however, placeholders (using |ct| to jump around) will not
     work.
 
 The built-in snippets
@@ -124,8 +124,8 @@ Insert an arbitrary HTML tag [<<]
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This allows you to insert an arbitrary full HTML tag (or wrap previously
-selected text in the tag). To use it, simply type ``<<`` and press |ct|.The
-editor will expand it to::
+selected text in the tag). To use it, simply type ``<<`` and press |ct|.
+The editor will expand it to::
 
     <|></>
 

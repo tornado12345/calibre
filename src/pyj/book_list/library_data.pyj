@@ -1,21 +1,33 @@
 # vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
-from __python__ import hash_literals, bound_methods
+from __python__ import bound_methods, hash_literals
 
-from ajax import ajax
+from gettext import gettext as _
+
+from ajax import absolute_path, ajax
+from book_list.globals import get_session_data
 from lru_cache import LRUCache
 from session import get_interface_data
 from utils import parse_url_params
 
-from book_list.globals import get_session_data
-
 load_status = {'loading':True, 'ok':False, 'error_html':None, 'current_fetch': None}
-library_data = {'metadata':{}}
+library_data = {'metadata':{}, 'previous_book_ids': v'[]', 'force_refresh': False}
 
 
 def current_library_id():
     q = parse_url_params()
     return q.library_id or get_interface_data().default_library_id
+
+
+def current_virtual_library():
+    q = parse_url_params()
+    return q.vl or ''
+
+
+def last_virtual_library_for(library_id):
+    if last_virtual_library_for.library_id is library_id:
+        return last_virtual_library_for.vl or ''
+    return ''
 
 
 def url_books_query(sd):
@@ -26,6 +38,7 @@ def url_books_query(sd):
         'library_id': lid,
         'sort': q.sort or sd.get_library_option(lid, 'sort'),
         'search': q.search,
+        'vl': current_virtual_library(),
     }
 
 
@@ -37,7 +50,8 @@ def loaded_books_query():
     return {
         'library_id': sr.library_id if sr else None,
         'sort': sort,
-        'search': sr?.query
+        'search': sr?.query,
+        'vl':sr?.vl
     }
 
 
@@ -50,28 +64,72 @@ def current_sorted_field():
     return csf, csfo
 
 
+def all_virtual_libraries():
+    return library_data.virtual_libraries or {}
+
+
 def update_library_data(data):
     load_status.loading = False
     load_status.ok = True
     load_status.error_html = None
-    for key in 'search_result sortable_fields field_metadata metadata'.split(' '):
+    library_data.previous_book_ids = v'[]'
+    if library_data.for_library is not current_library_id():
+        library_data.field_names = {}
+    library_data.for_library = current_library_id()
+    for key in 'search_result sortable_fields field_metadata metadata virtual_libraries book_display_fields'.split(' '):
         library_data[key] = data[key]
+    sr = library_data.search_result
+    if sr:
+        last_virtual_library_for.library_id = sr.library_id
+        last_virtual_library_for.vl = sr.vl
+    else:
+        last_virtual_library_for.library_id = None
+        last_virtual_library_for.vl = None
+
+
+def add_more_books(data):
+    for key in data.metadata:
+        library_data.metadata[key] = data.metadata[key]
+    sr = library_data.search_result
+    if sr and sr.book_ids and sr.book_ids.length > 0:
+        library_data.previous_book_ids = library_data.previous_book_ids.concat(sr.book_ids)
+    library_data.search_result = data.search_result
+
+
+def current_book_ids():
+    return library_data.previous_book_ids.concat(library_data.search_result.book_ids)
+
+
+def book_after(book_id):
+    ids = current_book_ids()
+    idx = ids.indexOf(int(book_id))
+    if idx > -1:
+        if idx < ids.length - 1:
+            return ids[idx + 1]
+        if idx > 0:  # wrap around
+            return ids[0]
 
 
 def on_data_loaded(end_type, xhr, ev):
     load_status.current_fetch = None
+    def bad_load(msg):
+        load_status.ok = False
+        load_status.loading = False
+        load_status.error_html = msg or xhr.error_html
+
     if end_type is 'load':
         data = JSON.parse(xhr.responseText)
-        update_library_data(data)
-        sd = get_session_data()
-        q = loaded_books_query()
-        sd.set_library_option(q.library_id, 'sort', q.sort)
+        if data.bad_restriction:
+            bad_load(_('The library restriction for the current user is invalid: {}').format(data.bad_restriction))
+        else:
+            update_library_data(data)
+            sd = get_session_data()
+            q = loaded_books_query()
+            sd.set_library_option(q.library_id, 'sort', q.sort)
     elif end_type is 'abort':
         pass
     else:
-        load_status.ok = False
-        load_status.loading = False
-        load_status.error_html = xhr.error_html
+        bad_load()
 
 
 def fetch_init_data():
@@ -85,18 +143,56 @@ def fetch_init_data():
     load_status.current_fetch.send()
 
 
+def field_names_received(library_id, field, proceed, end_type, xhr, event):
+    if library_id is not current_library_id():
+        return
+    if end_type is not 'load':
+        if end_type is not 'abort':
+            proceed(False, field, xhr.error_html)
+        return
+    try:
+        names = JSON.parse(xhr.responseText)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        proceed(False, field, 'Invalid JSON from server')
+        return
+    library_data.field_names[field] = {
+        'loading': False,
+        'loaded': True,
+        'last_updated_at': Date.now(),
+        'names': names
+    }
+    proceed(True, field, names)
+
+
+def field_names_for(field, proceed):
+    if library_data.field_names[field] and library_data.field_names[field].loaded:
+        proceed(True, field, library_data.field_names[field].names)
+    if not library_data.field_names[field] or (not library_data.field_names[field].loading and Date.now() - library_data.field_names[field].last_updated_at > 3600 * 1000):
+
+        ajax(f'interface-data/field-names/{encodeURIComponent(field)}', field_names_received.bind(None, current_library_id(), field, proceed), query={'library_id': current_library_id()}).send()
+        if not library_data.field_names[field]:
+            library_data.field_names[field] = {'last_updated_at': 0, 'loaded': False, 'names': v'[]'}
+        library_data.field_names[field].loading = True
+
+
 def thumbnail_url(book_id, width, height):
-    return 'get/thumb/{}/{}?sz={}x{}'.format(book_id, loaded_books_query().library_id, Math.ceil(width * window.devicePixelRatio), Math.ceil(height * window.devicePixelRatio))
+    return absolute_path(
+        'get/thumb/{}/{}?sz={}x{}'.format(
+            book_id, loaded_books_query().library_id,
+            Math.ceil(width * window.devicePixelRatio), Math.ceil(height * window.devicePixelRatio)
+        ))
 
 
 def cover_url(book_id):
     lid = current_library_id()
-    return f'get/cover/{book_id}/{lid}'
+    return absolute_path(f'get/cover/{book_id}/{lid}')
 
 
 def download_url(book_id, fmt):
     lid = current_library_id()
-    return f'get/{fmt}/{book_id}/{lid}}'
+    return absolute_path(f'get/{fmt}/{book_id}/{lid}')
 
 
 def book_metadata(book_id):
@@ -107,14 +203,35 @@ def set_book_metadata(book_id, value):
     library_data.metadata[book_id] = value
 
 
+def loaded_book_ids():
+    return Object.keys(library_data.metadata)
+
+
+def force_refresh_on_next_load():
+    library_data.force_refresh = True
+
+
 def ensure_current_library_data():
-    q = url_books_query()
-    loaded = loaded_books_query()
-    matches = True
-    for key in q:
-        if q[key] is not loaded[key]:
-            matches = False
-            break
+    fr = library_data.force_refresh
+    library_data.force_refresh = False
+
+    def is_same(a, b):
+        if not a and not b:
+            return True
+        return a is b
+
+
+    if fr:
+        matches = False
+    else:
+        q = url_books_query()
+        loaded = loaded_books_query()
+        matches = True
+
+        for key in q:
+            if not is_same(q[key], loaded[key]):
+                matches = False
+                break
     if not matches:
         fetch_init_data()
 
@@ -155,3 +272,16 @@ class ThumbnailCache:
             callback(img, load_type)
 
 thumbnail_cache = ThumbnailCache()
+
+
+def sync_library_books(library_id, to_sync, callback):
+    url = f'book-get-last-read-position/{library_id}/'
+    which = v'[]'
+    lrmap = {}
+    for key, last_read in to_sync:
+        library_id, book_id, fmt = key
+        fmt = fmt.upper()
+        which.push(f'{book_id}-{fmt}')
+        lrmap[f'{book_id}:{fmt}'] = last_read
+    url += which.join('_')
+    ajax(url, callback.bind(None, library_id, lrmap)).send()

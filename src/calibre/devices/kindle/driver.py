@@ -8,7 +8,7 @@ __docformat__ = 'restructuredtext en'
 Device driver for Amazon's Kindle
 '''
 
-import datetime, os, re, sys, json, hashlib
+import datetime, os, re, sys, json, hashlib, errno
 
 from calibre.constants import DEBUG
 from calibre.devices.kindle.bookmark import Bookmark
@@ -43,7 +43,7 @@ class KINDLE(USBMS):
     name           = 'Kindle Device Interface'
     gui_name       = 'Amazon Kindle'
     icon           = I('devices/kindle.png')
-    description    = _('Communicate with the Kindle eBook reader.')
+    description    = _('Communicate with the Kindle e-book reader.')
     author         = 'John Schember'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -76,9 +76,9 @@ class KINDLE(USBMS):
     VIRTUAL_BOOK_EXTENSIONS = frozenset({'kfx'})
     VIRTUAL_BOOK_EXTENSION_MESSAGE = _(
         'The following books are in KFX format. KFX is a virtual book format, and cannot'
-        ' be transferred from the device. Instead, you must go to your "Manage my'
-        ' content and devices" page on amazon.com and download the book to your computer from there.'
-        ' That will give you a regular azw3 file that you can add to calibre normally.'
+        ' be transferred from the device. Instead, you should go to your "Manage my'
+        ' content and devices" page on the Amazon homepage and download the book to your computer from there.'
+        ' That will give you a regular AZW3 file that you can add to calibre normally.'
         ' Click "Show details" to see the list of books.'
     )
 
@@ -215,13 +215,13 @@ class KINDLE(USBMS):
         spanTag['style'] = 'font-weight:bold'
         if bookmark.book_format == 'pdf':
             spanTag.insert(0,NavigableString(
-                _("%(time)s<br />Last Page Read: %(loc)d (%(pr)d%%)") % dict(
+                _("%(time)s<br />Last page read: %(loc)d (%(pr)d%%)") % dict(
                     time=strftime(u'%x', timestamp.timetuple()),
                     loc=last_read_location,
                     pr=percent_read)))
         else:
             spanTag.insert(0,NavigableString(
-                _("%(time)s<br />Last Page Read: Location %(loc)d (%(pr)d%%)") % dict(
+                _("%(time)s<br />Last page read: Location %(loc)d (%(pr)d%%)") % dict(
                     time=strftime(u'%x', timestamp.timetuple()),
                     loc=last_read_location,
                     pr=percent_read)))
@@ -319,7 +319,7 @@ class KINDLE(USBMS):
 class KINDLE2(KINDLE):
 
     name           = 'Kindle 2/3/4/Touch/PaperWhite/Voyage Device Interface'
-    description    = _('Communicate with the Kindle 2/3/4/Touch/PaperWhite/Voyage eBook reader.')
+    description    = _('Communicate with the Kindle 2/3/4/Touch/PaperWhite/Voyage e-book reader.')
 
     FORMATS     = ['azw', 'mobi', 'azw3', 'prc', 'azw1', 'tpz', 'azw4', 'kfx', 'pobi', 'pdf', 'txt']
     DELETE_EXTS    = KINDLE.DELETE_EXTS + ['.mbp1', '.mbs', '.sdr', '.han']
@@ -328,7 +328,7 @@ class KINDLE2(KINDLE):
     # the .sdr sidecar folder
 
     PRODUCT_ID = [0x0002, 0x0004]
-    BCD        = [0x0100, 0x0310]
+    BCD        = [0x0100, 0x0310, 0x401]
     # SUPPORTS_SUB_DIRS = False # Apparently the Paperwhite doesn't like files placed in subdirectories
     # SUPPORTS_SUB_DIRS_FOR_SCAN = True
 
@@ -391,7 +391,8 @@ class KINDLE2(KINDLE):
     # x330 on the PaperWhite
     # x262 on the Touch. Doesn't choke on x330, though.
     # x470 on the Voyage, checked that it works on PW, Touch checked by eschwartz.
-    THUMBNAIL_HEIGHT         = 470
+    # x500 on the Oasis 2017. checked that it works on the PW3
+    THUMBNAIL_HEIGHT         = 500
 
     @classmethod
     def migrate_extra_customization(cls, vals):
@@ -461,26 +462,44 @@ class KINDLE2(KINDLE):
         # Upload the apnx file
         self.upload_apnx(path, filename, metadata, filepath)
 
-    def upload_kindle_thumbnail(self, metadata, filepath):
+    def thumbpath_from_filepath(self, filepath):
+        from calibre.ebooks.mobi.reader.headers import MetadataHeader
         from calibre.utils.logging import default_log
-        coverdata = getattr(metadata, 'thumbnail', None)
-        if not coverdata or not coverdata[2]:
-            return
         thumb_dir = os.path.join(self._main_prefix, 'system', 'thumbnails')
         if not os.path.exists(thumb_dir):
             return
-
-        from calibre.ebooks.mobi.reader.headers import MetadataHeader
         with lopen(filepath, 'rb') as f:
             mh = MetadataHeader(f, default_log)
         if mh.exth is None or not mh.exth.uuid or not mh.exth.cdetype:
             return
-        thumbfile = os.path.join(thumb_dir,
+        return os.path.join(thumb_dir,
                 'thumbnail_{uuid}_{cdetype}_portrait.jpg'.format(
                     uuid=mh.exth.uuid, cdetype=mh.exth.cdetype))
-        with lopen(thumbfile, 'wb') as f:
-            f.write(coverdata[2])
-            fsync(f)
+
+    def upload_kindle_thumbnail(self, metadata, filepath):
+        coverdata = getattr(metadata, 'thumbnail', None)
+        if not coverdata or not coverdata[2]:
+            return
+
+        tp = self.thumbpath_from_filepath(filepath)
+        if tp:
+            with lopen(tp, 'wb') as f:
+                f.write(coverdata[2])
+                fsync(f)
+
+    def delete_single_book(self, path):
+        try:
+            tp = self.thumbpath_from_filepath(path)
+            if tp:
+                try:
+                    os.remove(tp)
+                except EnvironmentError as err:
+                    if err.errno != errno.ENOENT:
+                        prints(u'Failed to delete thumbnail for {!r} at {!r} with error: {}'.format(path, tp, err))
+        except Exception:
+            import traceback
+            traceback.print_exc()
+        USBMS.delete_single_book(self, path)
 
     def upload_apnx(self, path, filename, metadata, filepath):
         from calibre.devices.kindle.apnx import APNXBuilder
@@ -534,7 +553,7 @@ class KINDLE2(KINDLE):
 class KINDLE_DX(KINDLE2):
 
     name           = 'Kindle DX Device Interface'
-    description    = _('Communicate with the Kindle DX eBook reader.')
+    description    = _('Communicate with the Kindle DX e-book reader.')
 
     FORMATS = ['azw', 'mobi', 'prc', 'azw1', 'tpz', 'azw4', 'pobi', 'pdf', 'txt']
     PRODUCT_ID = [0x0003]
@@ -542,6 +561,9 @@ class KINDLE_DX(KINDLE2):
 
     def upload_kindle_thumbnail(self, metadata, filepath):
         pass
+
+    def delete_single_book(self, path):
+        USBMS.delete_single_book(self, path)
 
 
 class KINDLE_FIRE(KINDLE2):
@@ -563,3 +585,6 @@ class KINDLE_FIRE(KINDLE2):
 
     def upload_kindle_thumbnail(self, metadata, filepath):
         pass
+
+    def delete_single_book(self, path):
+        USBMS.delete_single_book(self, path)

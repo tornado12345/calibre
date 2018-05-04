@@ -52,8 +52,8 @@ class KOBOTOUCHConfig(TabbedDeviceConfig):
         self.tab1 = Tab1Config(self, self.device)
         self.tab2 = Tab2Config(self, self.device)
 
-        self.addDeviceTab(self.tab1, _("Collections, Covers && Uploads"))
-        self.addDeviceTab(self.tab2, _('Metadata, On Device && Advanced'))
+        self.addDeviceTab(self.tab1, _("Collections, covers && uploads"))
+        self.addDeviceTab(self.tab2, _('Metadata, on device && advanced'))
 
     def get_pref(self, key):
         return self.device.get_pref(key)
@@ -114,6 +114,7 @@ class KOBOTOUCHConfig(TabbedDeviceConfig):
 
         p['update_series'] = self.update_series
         p['modify_css'] = self.modify_css
+        p['override_kobo_replace_existing'] = self.override_kobo_replace_existing
 
         p['support_newer_firmware'] = self.support_newer_firmware
         p['debugging_title'] = self.debugging_title
@@ -170,7 +171,7 @@ class BookUploadsGroupBox(DeviceOptionsGroupBox):
 
     def __init__(self, parent, device):
         super(BookUploadsGroupBox, self).__init__(parent, device)
-        self.setTitle(_("Book Uploading"))
+        self.setTitle(_("Book uploading"))
 
         self.options_layout = QGridLayout()
         self.options_layout.setObjectName("options_layout")
@@ -179,19 +180,34 @@ class BookUploadsGroupBox(DeviceOptionsGroupBox):
         self.modify_css_checkbox = create_checkbox(
                 _("Modify CSS"),
                 _('This allows addition of user CSS rules and removal of some CSS. '
-                'When sending a book, the driver adds the contents of {0} to all stylesheets in the ePub. '
+                'When sending a book, the driver adds the contents of {0} to all stylesheets in the EPUB. '
                 'This file is searched for in the root directory of the main memory of the device. '
                 'As well as this, if the file contains settings for the "orphans" or "widows", '
                 'these are removed for all styles in the original stylesheet.').format(device.KOBO_EXTRA_CSSFILE),
                 device.get_pref('modify_css')
                 )
+        self.override_kobo_replace_existing_checkbox = create_checkbox(
+                _("Do not treat replacements as new books"),
+                _('When a new book is side-loaded, the Kobo firmware imports details of the book into the internal database. '
+                'Even if the book is a replacement for an existing book, the Kobo will remove the book from the database and then treat it as a new book. '
+                'This means that the reading status, bookmarks and collections for the book will be lost. '
+                'This option overrides firmware behavior and attempts to prevent a book that has been resent from being treated as a new book. '
+                'If you prefer to have replacements treated as new books, turn this option off.'
+                ),
+                device.get_pref('override_kobo_replace_existing')
+                )
 
         self.options_layout.addWidget(self.modify_css_checkbox, 0, 0, 1, 2)
-        self.options_layout.setRowStretch(1, 1)
+        self.options_layout.addWidget(self.override_kobo_replace_existing_checkbox, 1, 0, 1, 2)
+        self.options_layout.setRowStretch(2, 1)
 
     @property
     def modify_css(self):
         return self.modify_css_checkbox.isChecked()
+
+    @property
+    def override_kobo_replace_existing(self):
+        return self.override_kobo_replace_existing_checkbox.isChecked()
 
 
 class CollectionsGroupBox(DeviceOptionsGroupBox):
@@ -208,28 +224,28 @@ class CollectionsGroupBox(DeviceOptionsGroupBox):
         self.setChecked(device.get_pref('manage_collections'))
         self.setToolTip(wrap_msg(_('Create new bookshelves on the Kobo if they do not exist. This is only for firmware V2.0.0 or later.')))
 
-        self.collections_columns_label = QLabel(_('Collections Columns:'))
+        self.collections_columns_label = QLabel(_('Collections columns:'))
         self.collections_columns_edit = QLineEdit(self)
         self.collections_columns_edit.setToolTip(_('The Kobo from firmware V2.0.0 supports bookshelves.'
-                ' These are created on the Kobo. ' +
+                ' These are created on the Kobo. '
                 'Specify a tags type column for automatic management.'))
         self.collections_columns_edit.setText(device.get_pref('collections_columns'))
 
         self.create_collections_checkbox = create_checkbox(
-                         _("Create Collections"),
+                         _("Create collections"),
                          _('Create new bookshelves on the Kobo if they do not exist. This is only for firmware V2.0.0 or later.'),
                          device.get_pref('create_collections')
                          )
         self.delete_empty_collections_checkbox = create_checkbox(
-                         _('Delete Empty Bookshelves'),
+                         _('Delete empty bookshelves'),
                          _('Delete any empty bookshelves from the Kobo when syncing is finished. This is only for firmware V2.0.0 or later.'),
                          device.get_pref('delete_empty_collections')
                          )
 
-        self.ignore_collections_names_label = QLabel(_('Ignore Collections:'))
+        self.ignore_collections_names_label = QLabel(_('Ignore collections:'))
         self.ignore_collections_names_edit = QLineEdit(self)
-        self.ignore_collections_names_edit.setToolTip(_('List the names of collections to be ignored by ' +
-                'the collection management. The collections listed ' +
+        self.ignore_collections_names_edit.setToolTip(_('List the names of collections to be ignored by '
+                'the collection management. The collections listed '
                 'will not be changed. Names are separated by commas.'))
         self.ignore_collections_names_edit.setText(device.get_pref('ignore_collections_names'))
 
@@ -277,8 +293,8 @@ class CoversGroupBox(DeviceOptionsGroupBox):
         self.setToolTip(wrap_msg(_('Upload cover images from the calibre library when sending books to the device.')))
 
         self.upload_grayscale_checkbox = create_checkbox(
-                             _('Upload Black and White Covers'),
-                             _('Convert covers to Black and White when uploading'),
+                             _('Upload black and white covers'),
+                             _('Convert covers to black and white when uploading'),
                              device.get_pref('upload_grayscale')
                              )
 
@@ -316,7 +332,7 @@ class DeviceListGroupBox(DeviceOptionsGroupBox):
         self.setLayout(self.options_layout)
 
         self.show_recommendations_checkbox = create_checkbox(
-                             _("Show Recommendations"),
+                             _("Show recommendations"),
                              _('Kobo shows recommendations on the device.  In some cases these have '
                                'files but in other cases they are just pointers to the web site to buy. '
                                'Enable if you wish to see/delete them.'),
@@ -331,7 +347,7 @@ class DeviceListGroupBox(DeviceOptionsGroupBox):
                              )
 
         self.show_previews_checkbox = create_checkbox(
-                             _('Show Previews'),
+                             _('Show previews'),
                              _('Kobo previews are included on the Touch and some other versions'
                                ' by default they are no longer displayed as there is no good reason to '
                                'see them.  Enable if you wish to see/delete them.'),
@@ -359,7 +375,7 @@ class DeviceListGroupBox(DeviceOptionsGroupBox):
 class AdvancedGroupBox(DeviceOptionsGroupBox):
 
     def __init__(self, parent, device):
-        super(AdvancedGroupBox, self).__init__(parent, device, _("Advanced Options"))
+        super(AdvancedGroupBox, self).__init__(parent, device, _("Advanced options"))
 #         self.setTitle(_("Advanced Options"))
 
         self.options_layout = QGridLayout()
@@ -369,7 +385,7 @@ class AdvancedGroupBox(DeviceOptionsGroupBox):
         self.support_newer_firmware_checkbox = create_checkbox(
                             _("Attempt to support newer firmware"),
                             _('Kobo routinely updates the firmware and the '
-                              'database version.  With this option Calibre will attempt '
+                              'database version. With this option calibre will attempt '
                               'to perform full read-write functionality - Here be Dragons!! '
                               'Enable only if you are comfortable with restoring your kobo '
                               'to factory defaults and testing software. '
@@ -422,7 +438,7 @@ class MetadataGroupBox(DeviceOptionsGroupBox):
                                'Be careful when doing this as it will take time and could make the initial connection take a long time.')))
 
         self.update_series_checkbox = create_checkbox(
-                             _("Set Series information"),
+                             _("Set series information"),
                              _('The book lists on the Kobo devices can display series information. '
                                'This is not read by the device from the sideloaded books. '
                                'Series information can only be added to the device after the book has been processed by the device. '

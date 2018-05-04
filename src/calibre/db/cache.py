@@ -35,6 +35,7 @@ from calibre.ptempfile import (base_dir, PersistentTemporaryFile,
 from calibre.utils.config import prefs, tweaks
 from calibre.utils.date import now as nowf, utcnow, UNDEFINED_DATE
 from calibre.utils.icu import sort_key
+from calibre.utils.localization import canonicalize_lang
 
 
 def api(f):
@@ -160,6 +161,11 @@ class Cache(object):
         will happen.'''
         return SafeReadLock(self.read_lock)
 
+    @write_api
+    def ensure_has_search_category(self, fail_on_existing=True):
+        if len(self._search_api.saved_searches.names()) > 0:
+            self.field_metadata.add_search_category(label='search', name=_('Searches'), fail_on_existing=fail_on_existing)
+
     def _initialize_dynamic_categories(self):
         # Reconstruct the user categories, putting them into field_metadata
         fm = self.field_metadata
@@ -183,9 +189,7 @@ class Cache(object):
                     self.field_metadata.add_user_category(label=u'@' + cat, name=cat)
                 except ValueError:
                     traceback.print_exc()
-
-        if len(self._search_api.saved_searches.names()) > 0:
-            self.field_metadata.add_search_category(label='search', name=_('Searches'))
+        self._ensure_has_search_category()
 
         self.field_metadata.add_grouped_search_terms(
                                     self._pref('grouped_search_terms', {}))
@@ -202,6 +206,10 @@ class Cache(object):
     @write_api
     def initialize_template_cache(self):
         self.formatter_template_cache = {}
+
+    @write_api
+    def set_user_template_functions(self, user_template_functions):
+        self.backend.set_user_template_functions(user_template_functions)
 
     @write_api
     def clear_composite_caches(self, book_ids=None):
@@ -351,12 +359,14 @@ class Cache(object):
             bools_are_tristate = self.backend.prefs['bools_are_tristate']
 
             for field, table in self.backend.tables.iteritems():
-                self.fields[field] = create_field(field, table, bools_are_tristate)
+                self.fields[field] = create_field(field, table, bools_are_tristate,
+                                          self.backend.get_template_functions)
                 if table.metadata['datatype'] == 'composite':
                     self.composites[field] = self.fields[field]
 
             self.fields['ondevice'] = create_field('ondevice',
-                    VirtualTable('ondevice'), bools_are_tristate)
+                    VirtualTable('ondevice'), bools_are_tristate,
+                    self.backend.get_template_functions)
 
             for name, field in self.fields.iteritems():
                 if name[0] == '#' and name.endswith('_index'):
@@ -537,7 +547,7 @@ class Cache(object):
         '''
         af = self.fields['authors']
         if author_ids is None:
-            author_ids = tuple(af.table.id_map)
+            return {aid:af.author_data(aid) for aid in af.table.id_map}
         return {aid:af.author_data(aid) for aid in author_ids if aid in af.table.id_map}
 
     @read_api
@@ -735,13 +745,13 @@ class Cache(object):
     @read_api
     def format_abspath(self, book_id, fmt):
         '''
-        Return absolute path to the ebook file of format `format`. You should
+        Return absolute path to the e-book file of format `format`. You should
         almost never use this, as it breaks the threadsafe promise of this API.
         Instead use, :meth:`copy_format_to`.
 
         Currently used only in calibredb list, the viewer, edit book,
-        compare_format to original format, open with and the catalogs (via
-        get_data_as_dict()).
+        compare_format to original format, open with, bulk metadata edit and
+        the catalogs (via get_data_as_dict()).
 
         Apart from the viewer, open with and edit book, I don't believe any of
         the others do any file write I/O with the results of this call.
@@ -827,10 +837,10 @@ class Cache(object):
     @api
     def format(self, book_id, fmt, as_file=False, as_path=False, preserve_filename=False):
         '''
-        Return the ebook format as a bytestring or `None` if the format doesn't exist,
-        or we don't have permission to write to the ebook file.
+        Return the e-book format as a bytestring or `None` if the format doesn't exist,
+        or we don't have permission to write to the e-book file.
 
-        :param as_file: If True the ebook format is returned as a file object. Note
+        :param as_file: If True the e-book format is returned as a file object. Note
                         that the file object is a SpooledTemporaryFile, so if what you want to
                         do is copy the format to another file, use :meth:`copy_format_to`
                         instead for performance.
@@ -980,6 +990,19 @@ class Cache(object):
             be searched instead of searching all books.
         '''
         return self._search_api(self, query, restriction, virtual_fields=virtual_fields, book_ids=book_ids)
+
+    @read_api
+    def books_in_virtual_library(self, vl, search_restriction=None):
+        ' Return the set of books in the specified virtual library '
+        vl = self._pref('virtual_libraries', {}).get(vl) if vl else None
+        if not vl and not search_restriction:
+            return self.all_book_ids()
+        # We utilize the search restriction cache to speed this up
+        if vl:
+            if search_restriction:
+                return frozenset(self._search('', vl) & self._search('', search_restriction))
+            return frozenset(self._search('', vl))
+        return frozenset(self._search('', search_restriction))
 
     @api
     def get_categories(self, sort='name', book_ids=None, already_fixed=None,
@@ -1236,6 +1259,7 @@ class Cache(object):
         provided, but are never deleted. Also note that force_changes has no
         effect on setting title or authors.
         '''
+        dirtied = set()
 
         try:
             # Handle code passing in an OPF object instead of a Metadata object
@@ -1244,7 +1268,7 @@ class Cache(object):
             pass
 
         def set_field(name, val):
-            self._set_field(name, {book_id:val}, do_path_update=False, allow_case_change=allow_case_change)
+            dirtied.update(self._set_field(name, {book_id:val}, do_path_update=False, allow_case_change=allow_case_change))
 
         path_changed = False
         if set_title and mi.title:
@@ -1334,6 +1358,7 @@ class Cache(object):
             # the db and Cache are in sync
             self._reload_from_db()
             raise
+        return dirtied
 
     def _do_add_format(self, book_id, fmt, stream, name=None, mtime=None):
         path = self._field_for('path', book_id)
@@ -1356,7 +1381,7 @@ class Cache(object):
     @api
     def add_format(self, book_id, fmt, stream_or_path, replace=True, run_hooks=True, dbapi=None):
         '''
-        Add a format to the specified book. Return True of the format was added successfully.
+        Add a format to the specified book. Return True if the format was added successfully.
 
         :param replace: If True replace existing format, otherwise if the format already exists, return False.
         :param run_hooks: If True, file type plugins are run on the format before and after being added.
@@ -1583,7 +1608,7 @@ class Cache(object):
     def remove_books(self, book_ids, permanent=False):
         ''' Remove the books specified by the book_ids from the database and delete
         their format files. If ``permanent`` is False, then the format files
-        are not deleted. '''
+        are placed in the recycle bin. '''
         path_map = {}
         for book_id in book_ids:
             try:
@@ -1910,12 +1935,13 @@ class Cache(object):
         author_map = defaultdict(set)
         for aid, author in at.id_map.iteritems():
             author_map[icu_lower(author)].add(aid)
-        return (author_map, at.col_book_map.copy(), self.fields['title'].table.book_col_map.copy())
+        return (author_map, at.col_book_map.copy(), self.fields['title'].table.book_col_map.copy(), self.fields['languages'].book_value_map.copy())
 
     @read_api
     def update_data_for_find_identical_books(self, book_id, data):
-        author_map, author_book_map, title_map = data
+        author_map, author_book_map, title_map, lang_map = data
         title_map[book_id] = self._field_for('title', book_id)
+        lang_map[book_id] = self._field_for('languages', book_id)
         at = self.fields['authors'].table
         for aid in at.book_col_map.get(book_id, ()):
             author_map[icu_lower(at.id_map[aid])].add(aid)
@@ -1930,6 +1956,7 @@ class Cache(object):
         title (title is fuzzy matched). See also :meth:`data_for_find_identical_books`. '''
         from calibre.db.utils import fuzzy_title
         identical_book_ids = set()
+        langq = tuple(filter(lambda x: x and x != 'und', map(canonicalize_lang, mi.languages or ())))
         if mi.authors:
             try:
                 quathors = mi.authors[:20]  # Too many authors causes parsing of the search expression to fail
@@ -1958,7 +1985,9 @@ class Cache(object):
                 fbook_title = fuzzy_title(fbook_title)
                 mbook_title = fuzzy_title(mi.title)
                 if fbook_title == mbook_title:
-                    identical_book_ids.add(book_id)
+                    bl = self._field_for('languages', book_id)
+                    if not langq or not bl or bl == langq:
+                        identical_book_ids.add(book_id)
         return identical_book_ids
 
     @read_api

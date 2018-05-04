@@ -15,7 +15,7 @@ from PyQt5.Qt import (
     QLabel, QGridLayout, QApplication, QDoubleSpinBox, QListWidgetItem, QSize,
     QPixmap, QDialog, QMenu, QLineEdit, QSizePolicy, QKeySequence,
     QDialogButtonBox, QAction, QCalendarWidget, QDate, QDateTime, QUndoCommand,
-    QUndoStack, QVBoxLayout, QPlainTextEdit)
+    QUndoStack, QVBoxLayout, QPlainTextEdit, QUrl)
 
 from calibre.gui2.widgets import EnLineEdit, FormatList as _FormatList, ImageView
 from calibre.gui2.widgets2 import access_key, populate_standard_spinbox_context_menu, RightClickButton, Dialog, RatingEditor
@@ -25,7 +25,7 @@ from calibre.ebooks.metadata import (
     title_sort, string_to_authors, check_isbn, authors_to_sort_string)
 from calibre.ebooks.metadata.meta import get_metadata
 from calibre.gui2 import (file_icon_provider, UNDEFINED_QDATETIME,
-        choose_files, error_dialog, choose_images)
+        choose_files, error_dialog, choose_images, gprefs)
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.utils.date import (
     local_tz, qt_to_dt, as_local_time, UNDEFINED_DATE, is_date_undefined,
@@ -164,6 +164,8 @@ def make_undoable(spinbox):
             if hasattr(self, 'setDateTime'):
                 m.addAction(_('Set date to undefined') + '\t' + QKeySequence(Qt.Key_Minus).toString(QKeySequence.NativeText),
                             lambda : self.setDateTime(self.minimumDateTime()))
+                m.addAction(_('Set date to today') + '\t' + QKeySequence(Qt.Key_Equal).toString(QKeySequence.NativeText),
+                            lambda : self.setDateTime(QDateTime.currentDateTime()))
             m.addAction(_('&Undo') + access_key(QKeySequence.Undo), self.undo).setEnabled(self.undo_stack.canUndo())
             m.addAction(_('&Redo') + access_key(QKeySequence.Redo), self.redo).setEnabled(self.undo_stack.canRedo())
             m.addSeparator()
@@ -255,13 +257,13 @@ class TitleSortEdit(TitleEdit, ToMetadataMixin):
         self.languages_edit = languages_edit
 
         base = self.TOOLTIP
-        ok_tooltip = '<p>' + textwrap.fill(base+'<br><br>'+
-                            _(' The green color indicates that the current '
-                              'title sort matches the current title'))
-        bad_tooltip = '<p>'+textwrap.fill(base + '<br><br>'+
-                _(' The red color warns that the current '
-                  'title sort does not match the current title. '
-                  'No action is required if this is what you want.'))
+        ok_tooltip = '<p>' + textwrap.fill(base+'<br><br>' + _(
+            ' The green color indicates that the current '
+            'title sort matches the current title'))
+        bad_tooltip = '<p>'+textwrap.fill(base + '<br><br>' + _(
+            ' The red color warns that the current '
+            'title sort does not match the current title. '
+            'No action is required if this is what you want.'))
         self.tooltips = (ok_tooltip, bad_tooltip)
 
         self.title_edit.textChanged.connect(self.update_state_and_val, type=Qt.QueuedConnection)
@@ -450,13 +452,13 @@ class AuthorSortEdit(EnLineEdit, ToMetadataMixin):
         self.db = db
 
         base = self.TOOLTIP
-        ok_tooltip = '<p>' + textwrap.fill(base+'<br><br>'+
-                _(' The green color indicates that the current '
-                    'author sort matches the current author'))
-        bad_tooltip = '<p>'+textwrap.fill(base + '<br><br>'+
-                _(' The red color indicates that the current '
-                    'author sort does not match the current author. '
-                    'No action is required if this is what you want.'))
+        ok_tooltip = '<p>' + textwrap.fill(base+'<br><br>' + _(
+            ' The green color indicates that the current '
+            'author sort matches the current author'))
+        bad_tooltip = '<p>'+textwrap.fill(base + '<br><br>'+ _(
+            ' The red color indicates that the current '
+            'author sort does not match the current author. '
+            'No action is required if this is what you want.'))
         self.tooltips = (ok_tooltip, bad_tooltip)
 
         self.authors_edit.editTextChanged.connect(self.update_state_and_val, type=Qt.QueuedConnection)
@@ -898,10 +900,9 @@ class FormatsManager(QWidget):
         return
 
     def add_format(self, *args):
-        files = choose_files(self, 'add formats dialog',
-                             _("Choose formats for ") +
-                             self.dialog.title.current_val,
-                             [(_('Books'), BOOK_EXTENSIONS)])
+        files = choose_files(
+                self, 'add formats dialog', _("Choose formats for ") + self.dialog.title.current_val,
+                [(_('Books'), BOOK_EXTENSIONS)])
         self._add_formats(files)
 
     def restore_fmt(self, fmt):
@@ -1051,7 +1052,7 @@ class Cover(ImageView):  # {{{
                     self.clicked.connect(action)
 
         self.select_cover_button = CB(_('&Browse'), 'document_open.png', self.select_cover)
-        self.trim_cover_button = b = CB(_('T&rim borders'), 'trim.png')
+        self.trim_cover_button = b = CB(_('Trim bord&ers'), 'trim.png')
         b.setToolTip(_(
             'Automatically detect and remove extra space at the cover\'s edges.\n'
             'Pressing it repeatedly can sometimes remove stubborn borders.'))
@@ -1109,9 +1110,9 @@ class Cover(ImageView):  # {{{
                 cf = open(_file, "rb")
                 cover = cf.read()
             except IOError as e:
-                d = error_dialog(self, _('Error reading file'),
-                        _("<p>There was an error reading from file: <br /><b>") +
-                                 _file + "</b></p><br />"+str(e))
+                d = error_dialog(
+                        self, _('Error reading file'),
+                        _("<p>There was an error reading from file: <br /><b>") + _file + "</b></p><br />"+str(e))
                 d.exec_()
             if cover:
                 orig = self.current_val
@@ -1247,6 +1248,9 @@ class CommentsEdit(Editor, ToMetadataMixin):  # {{{
         return property(fget=fget, fset=fset)
 
     def initialize(self, db, id_):
+        path = db.abspath(id_, index_is_id=True)
+        if path:
+            self.set_base_url(QUrl.fromLocalFile(os.path.join(path, 'metadata.html')))
         self.current_val = db.comments(id_, index_is_id=True)
         self.original_val = self.current_val
 
@@ -1449,7 +1453,7 @@ class Identifiers(Dialog):
 
 
 class IdentifiersEdit(QLineEdit, ToMetadataMixin):
-    LABEL = _('I&ds:')
+    LABEL = _('&Ids:')
     BASE_TT = _('Edit the identifiers for this book. '
             'For example: \n\n%s')%(
             'isbn:1565927249, doi:10.1000/182, amazon:1565927249')
@@ -1529,12 +1533,29 @@ class IdentifiersEdit(QLineEdit, ToMetadataMixin):
             col = 'none'
         elif check_isbn(isbn) is not None:
             col = OK_COLOR
-            extra = '\n\n'+_('This ISBN number is valid')
+            extra = '\n\n'+_('This ISBN is valid')
         else:
             col = ERR_COLOR
-            extra = '\n\n' + _('This ISBN number is invalid')
+            extra = '\n\n' + _('This ISBN is invalid')
         self.setToolTip(tt+extra)
         self.setStyleSheet(INDICATOR_SHEET % col)
+
+    def paste_identifier(self):
+        try:
+            prefix = gprefs['paste_isbn_prefixes'][0]
+        except IndexError:
+            prefix = 'isbn'
+        self.paste_prefix(prefix)
+
+    def paste_prefix(self, prefix):
+        if prefix == 'isbn':
+            self.paste_isbn()
+        else:
+            text = unicode(QApplication.clipboard().text()).strip()
+            if text:
+                vals = self.current_val
+                vals[prefix] = text
+                self.current_val = vals
 
     def paste_isbn(self):
         text = unicode(QApplication.clipboard().text()).strip()
@@ -1594,10 +1615,10 @@ class ISBNDialog(QDialog):  # {{{
             extra = ''
         elif check_isbn(isbn) is not None:
             col = OK_COLOR
-            extra = _('This ISBN number is valid')
+            extra = _('This ISBN is valid')
         else:
             col = ERR_COLOR
-            extra = _('This ISBN number is invalid')
+            extra = _('This ISBN is invalid')
         self.line_edit.setToolTip(extra)
         self.line_edit.setStyleSheet(INDICATOR_SHEET % col)
 
@@ -1741,7 +1762,7 @@ class DateEdit(make_undoable(QDateTimeEdit), ToMetadataMixin):
 
 
 class PubdateEdit(DateEdit):
-    LABEL = _('Publishe&d:')
+    LABEL = _('P&ublished:')
     FMT = 'MMM yyyy'
     ATTR = FIELD_NAME = 'pubdate'
     TWEAK = 'gui_pubdate_display_format'

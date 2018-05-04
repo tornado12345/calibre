@@ -2,17 +2,17 @@
 # License: GPL v3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 from __python__ import hash_literals
 
-from ajax import ajax
+from ajax import ajax, absolute_path
 from complete import create_search_bar
 from dom import clear, set_css, build_rule, svgicon, add_extra_css, ensure_id
 from elementmaker import E
 from gettext import gettext as _
 from widgets import create_button, create_spinner, Breadcrumbs
-from modals import show_modal
-from utils import rating_to_stars
+from modals import show_modal, create_custom_dialog
+from utils import rating_to_stars, safe_set_inner_html, is_ios
 from session import get_interface_data
 
-from book_list.library_data import library_data, current_library_id
+from book_list.library_data import library_data, current_library_id, current_virtual_library
 from book_list.ui import show_panel
 from book_list.router import back
 from book_list.top_bar import create_top_bar, add_button
@@ -31,7 +31,8 @@ CLASS_NAME = 'book-search-panel'
 add_extra_css(def():
     sel = '.' + CLASS_NAME + ' '
 
-    style =  build_rule(sel + ' div.tag-name:hover', color=get_color('list-hover-foreground'), background_color=get_color('list-hover-background'))
+    style =  build_rule(sel + ' div.tag-name > span', word_break='break-all', hyphens='auto', padding_left='1ex')
+    style +=  build_rule(sel + ' div.tag-name:hover', color=get_color('list-hover-foreground'), background_color=get_color('list-hover-background'))
     style += build_rule(sel + ' div.tag-menu:hover', color=get_color('list-hover-foreground'), background_color=get_color('list-hover-background'))
     style += build_rule(sel + ' div.tag-name:active', transform='scale(1.5)')
     style += build_rule(sel + ' div.tag-menu:active', transform='scale(2)')
@@ -39,17 +40,18 @@ add_extra_css(def():
     # search items list
     style += build_rule(sel + ' ul.search-items', margin_top='1ex', list_style_type='none', text_align='left')
     style += build_rule(sel + ' ul.search-items > li', display='inline-block', cursor='pointer', background_color=get_color('window-background2'), border_radius='10px', padding='0.5ex', margin_right='1em')
-    style += build_rule(sel + ' ul.search-items > li:hover', color='red')
+    style += build_rule(sel + ' ul.search-items > li:hover', color=get_color('window-hover-foreground'))
     style += build_rule(sel + ' ul.search-items > li:active', transform='scale(1.5)')
 
     # Actions popup
     style +=  build_rule('#modal-container ul.tb-action-list > li:hover', color=get_color('list-hover-foreground'), background_color=get_color('list-hover-background'))
-    style += build_rule('#modal-container ul.tb-action-list > li:active', color='red', color=get_color('list-hover-foreground'), background_color=get_color('list-hover-background'))
+    style += build_rule('#modal-container ul.tb-action-list > li:active', color=get_color('window-hover-foreground'), color=get_color('list-hover-foreground'), background_color=get_color('list-hover-background'))
 
     return style
 )
 
 state = {}
+last_accepted_search = None
 
 def component(container, name):
     return container.querySelector(f'[data-component="{name}"]')
@@ -58,7 +60,7 @@ def component(container, name):
 def icon_for_node(node):
     interface_data = get_interface_data()
     ans = interface_data.icon_map[node.data.category] or 'column.png'
-    return interface_data.icon_path + '/' + ans
+    return absolute_path(interface_data.icon_path + '/' + ans)
 
 
 def node_for_path(path):
@@ -70,11 +72,44 @@ def node_for_path(path):
 
 
 def execute_search(text):
+    nonlocal last_accepted_search
+    if state.tag_path and state.tag_path.length:
+        last_accepted_search = {'library_id': current_library_id(), 'vl': current_virtual_library(), 'tag_path': list(state.tag_path)}
+    apply_search(text)
+
+
+def ask_about_smart_quotes(text):
+    create_custom_dialog(_('Search contains smart quotes'), def(parent, close_modal):
+
+        def action(replace):
+            nonlocal text
+            close_modal()
+            if replace:
+                text = text.replace(/[“”«»„]/g, '"')
+            execute_search(text)
+
+        parent.appendChild(E.div(
+            E.div(_('The search expression {} contains smart quotes. By default, Apple inserts smart quotes instead of normal quotes when tapping the quote button. This will prevent the search from working, if you intended to use normal quotes. You can type normal quotes by long-tapping the quotes button. Do you want to keep the smart quotes or replace them with normal quotes?').format(text)),
+            E.div(class_='button-box',
+                create_button(_('Replace'), None, action.bind(None, True), highlight=True),
+                '\xa0',
+                create_button(_('Keep'), None, action.bind(None, False)),
+            )
+        ))
+    )
+
+
+
+
+def execute_search_interactive(text):
     if not text:
         container = document.getElementById(state.container_id)
         search_control = container.querySelector('input[name="search-books"]')
         text = search_control.value or ''
-    apply_search(text)
+    if is_ios and /[“”«»„]/.test(text):
+        ask_about_smart_quotes(text)
+    else:
+        execute_search(text)
 
 
 def search_expression_for_item(node, node_state):
@@ -131,7 +166,7 @@ def search_expression_for_item(node, node_state):
         name = str.replace(name, '"', r'\"')
         if name[0] is '.':
             name = '.' + name
-        if search_state is 'plusplus' or search_state is 'minusminus':
+        if search_state is '.true' or search_state is '.false':
             name = '.' + name
         expr = '{}:"={}{}"'.format(category, name, suffix)
 
@@ -149,9 +184,8 @@ def node_clicked(i):
         execute_search(expr)
 
 
-def add_to_search(node, search_type, anded):
-    if anded is undefined or anded is None:
-        anded = get_session_data().get('and_search_terms')
+def add_to_search(node, search_type):
+    anded = get_session_data().get('and_search_terms')
     state.active_nodes[node.id] = [search_type, anded]
     render_search_expression()
 
@@ -223,7 +257,7 @@ def menu_clicked(i):
         for text, search_type in items:
             li = E.li(
                 style='display:flex; align-items: center; margin-bottom:0.5ex; padding: 0.5ex; cursor:pointer',
-                E.img(src='{}/{}.png'.format(interface_data.icon_path, search_type), style='max-height: 2.5ex'),
+                E.img(src=absolute_path('{}/{}.png'.format(interface_data.icon_path, search_type)), style='max-height: 2.5ex'),
                 E.span('\xa0' + text)
             )
             li.addEventListener('click', add_to_search.bind(None, node, search_type))
@@ -263,14 +297,14 @@ def render_children(container, children):
                 E.div(class_='tag-name',
                     style='border-right:solid 1px currentColor; padding: 1ex; display:flex; align-items: center',
                     E.img(src=icon_for_node(node), style='display:inline-block; max-height:2.5ex'),
-                    '\xa0' + data.name
+                    E.span(data.name),
                 ),
                 E.div(class_='tag-menu',
                     style='padding: 1ex; display:flex; align-items:center',
                     E.div(svgicon('angle-down'))
                 )
         )
-        set_css(div, max_width='45vw', border='solid 1px currentColor', border_radius='20px', margin='0.5rem', cursor='pointer', overflow='hidden', user_select='none')
+        set_css(div, max_width='95vw', border='solid 1px currentColor', border_radius='20px', margin='0.5rem', cursor='pointer', overflow='hidden', user_select='none')
         div.firstChild.addEventListener('click', node_clicked.bind(None, i))
         div.lastChild.addEventListener('click', menu_clicked.bind(None, i))
         container.appendChild(div)
@@ -307,7 +341,13 @@ def render_tag_browser():
     container = document.getElementById(state.container_id).lastChild.lastChild
     clear(container)
     set_css(container, padding='1ex 1em', display='flex', flex_wrap='wrap', margin_left='-0.5rem')
-    render_children(container, node_for_path().children)
+    try:
+        node = node_for_path()
+    except:
+        # If a saved tag_path is no longer valid
+        state.tag_path = []
+        node = node_for_path()
+    render_children(container, node.children)
     render_breadcrumbs()
 
 
@@ -328,7 +368,7 @@ def on_data_fetched(end_type, xhr, ev):
     def show_error(error_html):
         ediv = E.div()
         container.appendChild(ediv)
-        ediv.innerHTML = '<h3>' + _('Failed to load tag browser data') + '</h3>' + error_html
+        safe_set_inner_html(ediv, '<h3>' + _('Failed to load Tag browser data') + '</h3>' + error_html)
 
     def process_node(node, item_map):
         state.node_id_map[node.id] = node
@@ -347,6 +387,9 @@ def on_data_fetched(end_type, xhr, ev):
         state.node_id_map = {}
         state.active_nodes = {}
         process_node(state.tag_browser_data, tag_browser_data.item_map)
+        if last_accepted_search and last_accepted_search.library_id is current_library_id() and last_accepted_search.vl is current_virtual_library():
+            if last_accepted_search.tag_path.length:
+                state.tag_path = list(last_accepted_search.tag_path)
         render_tag_browser()
     else:
         show_error(xhr.error_html)
@@ -357,7 +400,7 @@ def refresh():
         state.currently_loading.abort()
         state.currently_loading = None
     sd = get_session_data()
-    query = {'library_id': current_library_id()}
+    query = {'library_id': current_library_id(), 'vl':current_virtual_library()}
     for k in 'sort_tags_by partition_method collapse_at dont_collapse hide_empty_categories'.split(' '):
         query[k] = sd.get(k) + ''
     xhr = ajax('interface-data/tag-browser', on_data_fetched, query=query, bypass_cache=False)
@@ -385,7 +428,7 @@ def create_search_panel(container):
     # keyboard to popup and obscure the rest of the page
     search_container = component(container, 'search')
     search_button = create_button(_('Search'), icon='search', tooltip=_('Do the search'))
-    search_bar = create_search_bar(execute_search, 'search-books', tooltip=_('Search for books'), placeholder=_('Enter the search query'), button=search_button)
+    search_bar = create_search_bar(execute_search_interactive, 'search-books', tooltip=_('Search for books'), placeholder=_('Enter the search query'), button=search_button)
     set_css(search_bar, flex_grow='10', margin_right='0.5em')
     search_container.appendChild(E.div(style="display: flex; width: 100%;", search_bar, search_button))
     search_container.appendChild(E.ul(class_='search-items', data_component='search_expression'))
@@ -393,7 +436,7 @@ def create_search_panel(container):
     # Build loading panel
     loading_panel = component(container, 'loading')
     loading_panel.appendChild(E.div(
-        create_spinner(), '\xa0' + _('Fetching data for the tag browser, please wait') + '…',
+        create_spinner(), '\xa0' + _('Fetching data for the Tag browser, please wait') + '…',
         style='margin-left:auto; margin-right:auto; font-size: 1.5rem; font-weight; bold; text-align:center; margin-top:30vh')
     )
 
@@ -418,14 +461,14 @@ def get_prefs():
             'name': 'sort_tags_by',
             'text': _('Sort tags by'),
             'choices': [('name', _('Name')), ('popularity', _('Popularity (number of books)')), ('rating', _('Average rating'))],
-            'tooltip': _('Change how the tags/authors/etc. are sorted in the Tag Browser'),
+            'tooltip': _('Change how the tags/authors/etc. are sorted in the "Tag browser"'),
         },
 
         {
             'name':'partition_method',
-            'text':_('Tags browser category partitioning method'),
+            'text':_('Tag browser category partitioning method'),
             'choices':[('first letter', _('First Letter')), ('disable', _('Disable')), ('partition', _('Partition'))],
-            'tooltip':_('Choose how tag browser subcategories are displayed when'
+            'tooltip':_('Choose how Tag browser subcategories are displayed when'
                         ' there are more items than the limit. Select by first'
                         ' letter to see an A, B, C list. Choose partitioned to'
                         ' have a list of fixed-sized groups. Set to disabled'
@@ -437,7 +480,7 @@ def get_prefs():
             'text':_('Collapse when more items than'),
             'min': 5, 'max':10000, 'step':5,
             'from_storage':int, 'to_storage':int,
-            'tooltip': _('If a Tag Browser category has more than this number of items, it is divided'
+            'tooltip': _('If a "Tag browser" category has more than this number of items, it is divided'
                             ' up into subcategories. If the partition method is set to disable, this value is ignored.'),
         },
 
@@ -445,7 +488,7 @@ def get_prefs():
             'name': 'dont_collapse',
             'text': _('Categories not to partition'),
             'tooltip': _('A comma-separated list of categories in which items containing'
-                            ' periods are displayed in the tag browser trees. For example, if'
+                            ' periods are displayed in the Tag browser trees. For example, if'
                             " this box contains 'tags' then tags of the form 'Mystery.English'"
                             " and 'Mystery.Thriller' will be displayed with English and Thriller"
                             " both under 'Mystery'. If 'tags' is not in this box,"
@@ -466,7 +509,7 @@ def get_prefs():
     ]
 
 def tb_config_panel_handler():
-    return prefs_panel_handler(_('Configure Tag Browser'), get_prefs)
+    return prefs_panel_handler(_('Configure Tag browser'), get_prefs)
 # }}}
 
 
@@ -476,6 +519,6 @@ def init(container_id):
         return
     container = document.getElementById(container_id)
     create_top_bar(container, title=_('Search for books'), action=back, icon='close')
-    add_button(container, icon='cogs', action=show_panel.bind(None, 'book_list^search^prefs'), tooltip=_('Configure Tag Browser'))
+    add_button(container, icon='cogs', action=show_panel.bind(None, 'book_list^search^prefs'), tooltip=_('Configure Tag browser'))
     container.appendChild(E.div(class_=CLASS_NAME))
     create_search_panel(container.lastChild)

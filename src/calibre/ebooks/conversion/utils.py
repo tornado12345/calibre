@@ -358,7 +358,7 @@ class HeuristicProcessor(object):
 
         # define the pieces of the regex
         # (?<!\&\w{4});) is a semicolon not part of an entity
-        lookahead = "(?<=.{"+unicode(length)+u"}([a-zäëïöüàèìòùáćéíĺóŕńśúýâêîôûçąężıãõñæøþðßěľščťžňďřů,:)\IA\u00DF]|(?<!\&\w{4});))"
+        lookahead = "(?<=.{"+unicode(length)+u"}([a-zა-ჰäëïöüàèìòùáćéíĺóŕńśúýâêîôûçąężıãõñæøþðßěľščťžňďřů,:)\IA\u00DF]|(?<!\&\w{4});))"
         em_en_lookahead = "(?<=.{"+unicode(length)+u"}[\u2013\u2014])"
         soft_hyphen = u"\xad"
         line_ending = "\s*(?P<style_close></(span|[iub])>)?\s*(</(p|div)>)?"
@@ -436,12 +436,12 @@ class HeuristicProcessor(object):
         # Re-open self closing paragraph tags
         html = re.sub('<p[^>/]*/>', '<p> </p>', html)
         # Get rid of empty span, bold, font, em, & italics tags
-        html = re.sub(r"\s*<span[^>]*>\s*(<span[^>]*>\s*</span>){0,2}\s*</span>\s*", " ", html)
-        html = re.sub(
-            r"\s*<(font|[ibu]|em|strong)[^>]*>\s*(<(font|[ibu]|em|strong)[^>]*>\s*</(font|[ibu]|em|strong)>\s*){0,2}\s*</(font|[ibu]|em|strong)>", " ", html)
-        html = re.sub(r"\s*<span[^>]*>\s*(<span[^>]>\s*</span>){0,2}\s*</span>\s*", " ", html)
-        html = re.sub(
-            r"\s*<(font|[ibu]|em|strong)[^>]*>\s*(<(font|[ibu]|em|strong)[^>]*>\s*</(font|[ibu]|em|strong)>\s*){0,2}\s*</(font|[ibu]|em|strong)>", " ", html)
+        fmt_tags = 'font|[ibu]|em|strong'
+        open_fmt_pat, close_fmt_pat = r'<(?:{})(?:\s[^>]*)?>'.format(fmt_tags), '</(?:{})>'.format(fmt_tags)
+        for i in range(2):
+            html = re.sub(r"\s*<span[^>]*>\s*(<span[^>]*>\s*</span>){0,2}\s*</span>\s*", " ", html)
+            html = re.sub(
+                r"\s*{open}\s*({open}\s*{close}\s*){{0,2}}\s*{close}".format(open=open_fmt_pat, close=close_fmt_pat) , " ", html)
         # delete surrounding divs from empty paragraphs
         html = re.sub('<div[^>]*>\s*<p[^>]*>\s*</p>\s*</div>', '<p> </p>', html)
         # Empty heading tags

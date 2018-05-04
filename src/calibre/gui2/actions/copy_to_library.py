@@ -12,8 +12,9 @@ from contextlib import closing
 from collections import defaultdict
 
 from PyQt5.Qt import (
-    QToolButton, QDialog, QGridLayout, QIcon, QLabel, QDialogButtonBox, QApplication,
-    QFormLayout, QCheckBox, QWidget, QScrollArea, QVBoxLayout, Qt, QListWidgetItem, QListWidget)
+    QToolButton, QDialog, QGridLayout, QIcon, QLabel, QDialogButtonBox,
+    QApplication, QLineEdit, QHBoxLayout, QFormLayout, QCheckBox, QWidget,
+    QScrollArea, QVBoxLayout, Qt, QListWidgetItem, QListWidget, QSize)
 
 from calibre import as_unicode
 from calibre.constants import isosx
@@ -22,15 +23,16 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import (error_dialog, Dispatcher, warning_dialog, gprefs,
         info_dialog, choose_dir)
 from calibre.gui2.dialogs.progress import ProgressDialog
-from calibre.gui2.widgets import HistoryLineEdit
+from calibre.gui2.widgets2 import Dialog
 from calibre.utils.config import prefs, tweaks
 from calibre.utils.date import now
-from calibre.utils.icu import sort_key
+from calibre.utils.icu import sort_key, numeric_sort_key
 
 
 def ask_about_cc_mismatch(gui, db, newdb, missing_cols, incompatible_cols):  # {{{
     source_metadata = db.field_metadata.custom_field_metadata(include_composites=True)
-    ndbname = os.path.basename(newdb.library_path)
+    dest_library_path = newdb.library_path
+    ndbname = os.path.basename(dest_library_path)
 
     d = QDialog(gui)
     d.setWindowTitle(_('Different custom columns'))
@@ -82,6 +84,7 @@ def ask_about_cc_mismatch(gui, db, newdb, missing_cols, incompatible_cols):  # {
     d.bb.rejected.connect(d.reject)
     d.resize(d.sizeHint())
     if d.exec_() == d.Accepted:
+        changes_made = False
         for k, cb in missing_widgets:
             if cb.isChecked():
                 col_meta = source_metadata[k]
@@ -89,6 +92,13 @@ def ask_about_cc_mismatch(gui, db, newdb, missing_cols, incompatible_cols):  # {
                             col_meta['label'], col_meta['name'], col_meta['datatype'],
                             len(col_meta['is_multiple']) > 0,
                             col_meta['is_editable'], col_meta['display'])
+                changes_made = True
+        if changes_made:
+            # Unload the db so that the changes are available
+            # when it is next accessed
+            from calibre.gui2.ui import get_gui
+            library_broker = get_gui().library_broker
+            library_broker.unload_library(dest_library_path)
         return True
     return False
 # }}}
@@ -133,19 +143,20 @@ class Worker(Thread):  # {{{
     def add_formats(self, id_, paths, newdb, replace=True):
         for path in paths:
             fmt = os.path.splitext(path)[-1].replace('.', '').upper()
-            with open(path, 'rb') as f:
+            with lopen(path, 'rb') as f:
                 newdb.add_format(id_, fmt, f, index_is_id=True,
                         notify=False, replace=replace)
 
     def doit(self):
-        from calibre.db.legacy import LibraryDatabase
-        newdb = LibraryDatabase(self.loc, is_second_db=True)
-        with closing(newdb):
+        from calibre.gui2.ui import get_gui
+        library_broker = get_gui().library_broker
+        newdb = library_broker.get_library(self.loc)
+        try:
             if self.check_for_duplicates:
                 self.find_identical_books_data = newdb.new_api.data_for_find_identical_books()
             self._doit(newdb)
-        newdb.break_cycles()
-        del newdb
+        finally:
+            library_broker.prune_loaded_dbs()
 
     def _doit(self, newdb):
         for i, x in enumerate(self.ids):
@@ -256,28 +267,52 @@ class Worker(Thread):  # {{{
 
 # }}}
 
-class ChooseLibrary(QDialog):  # {{{
+class ChooseLibrary(Dialog):  # {{{
 
-    def __init__(self, parent):
-        super(ChooseLibrary, self).__init__(parent)
-        d = self
-        d.l = l = QGridLayout()
-        d.setLayout(l)
-        d.setWindowTitle(_('Choose library'))
-        la = d.la = QLabel(_('Library &path:'))
-        l.addWidget(la, 0, 0)
-        le = d.le = HistoryLineEdit(d)
-        le.initialize('choose_library_for_copy')
-        l.addWidget(le, 0, 1)
+    def __init__(self, parent, locations):
+        self.locations = locations
+        Dialog.__init__(self, _('Choose library'), 'copy_to_choose_library_dialog', parent)
+        self.resort()
+        self.current_changed()
+
+    def resort(self):
+        if self.sort_alphabetically.isChecked():
+            sorted_locations = sorted(self.locations, key=lambda (name, loc): numeric_sort_key(name))
+        else:
+            sorted_locations = self.locations
+        self.items.clear()
+        for name, loc in sorted_locations:
+            i = QListWidgetItem(name, self.items)
+            i.setData(Qt.UserRole, loc)
+        self.items.setCurrentRow(0)
+
+    def setup_ui(self):
+        self.l = l = QGridLayout(self)
+        self.items = i = QListWidget(self)
+        i.setSelectionMode(i.SingleSelection)
+        i.currentItemChanged.connect(self.current_changed)
+        l.addWidget(i)
+        self.v = v = QVBoxLayout()
+        l.addLayout(v, 0, 1)
+        self.sort_alphabetically = sa = QCheckBox(_('&Sort libraries alphabetically'))
+        v.addWidget(sa)
+        sa.setChecked(bool(gprefs.get('copy_to_library_choose_library_sort_alphabetically', True)))
+        sa.stateChanged.connect(self.resort)
+        sa.stateChanged.connect(lambda: gprefs.set('copy_to_library_choose_library_sort_alphabetically', bool(self.sort_alphabetically.isChecked())))
+        la = self.la = QLabel(_('Library &path:'))
+        v.addWidget(la)
+        le = self.le = QLineEdit(self)
         la.setBuddy(le)
-        b = d.b = QToolButton(d)
+        b = self.b = QToolButton(self)
         b.setIcon(QIcon(I('document_open.png')))
         b.setToolTip(_('Browse for library'))
         b.clicked.connect(self.browse)
-        l.addWidget(b, 0, 2)
-        self.bb = bb = QDialogButtonBox(QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
+        h = QHBoxLayout()
+        h.addWidget(le), h.addWidget(b)
+        v.addLayout(h)
+        v.addStretch(10)
+        bb = self.bb
+        bb.setStandardButtons(QDialogButtonBox.Cancel)
         self.delete_after_copy = False
         b = bb.addButton(_('&Copy'), bb.AcceptRole)
         b.setIcon(QIcon(I('edit-copy.png')))
@@ -287,9 +322,16 @@ class ChooseLibrary(QDialog):  # {{{
         b2.setIcon(QIcon(I('edit-cut.png')))
         b2.setToolTip(_('Copy to the specified library and delete from the current library'))
         b.setDefault(True)
-        l.addWidget(bb, 1, 0, 1, 3)
-        le.setMinimumWidth(350)
-        self.resize(self.sizeHint())
+        l.addWidget(bb, 1, 0, 1, 2)
+        self.items.setFocus(Qt.OtherFocusReason)
+
+    def sizeHint(self):
+        return QSize(800, 550)
+
+    def current_changed(self):
+        i = self.items.currentItem() or self.items.item(0)
+        loc = i.data(Qt.UserRole)
+        self.le.setText(loc)
 
     def browse(self):
         d = choose_dir(self, 'choose_library_for_copy',
@@ -309,7 +351,7 @@ class DuplicatesQuestion(QDialog):  # {{{
         QDialog.__init__(self, parent)
         l = QVBoxLayout()
         self.setLayout(l)
-        self.la = la = QLabel(_('Books with the same title and author as the following already exist in the library %s.'
+        self.la = la = QLabel(_('Books with the same, title, author and language as the following already exist in the library %s.'
                                 ' Select which books you want copied anyway.') %
                               os.path.basename(loc))
         la.setWordWrap(True)
@@ -355,6 +397,7 @@ class DuplicatesQuestion(QDialog):  # {{{
 
 # }}}
 
+
 # Static session-long set of pairs of libraries that have had their custom columns
 # checked for compatibility
 libraries_with_checked_columns = defaultdict(set)
@@ -394,8 +437,8 @@ class CopyToLibraryAction(InterfaceAction):
             return
         db = self.gui.library_view.model().db
         locations = list(self.stats.locations(db))
-        if len(locations) > 50:
-            self.menu.addAction(_('Choose library by path...'), self.choose_library)
+        if len(locations) > 5:
+            self.menu.addAction(_('Choose library...'), self.choose_library)
             self.menu.addSeparator()
         for name, loc in locations:
             name = name.replace('&', '&&')
@@ -404,16 +447,18 @@ class CopyToLibraryAction(InterfaceAction):
             self.menu.addAction(name + ' ' + _('(delete after copy)'),
                     partial(self.copy_to_library, loc, delete_after=True))
             self.menu.addSeparator()
+        if len(locations) <= 5:
+            self.menu.addAction(_('Choose library...'), self.choose_library)
 
-        if len(locations) <= 50:
-            self.menu.addAction(_('Choose library by path...'), self.choose_library)
         self.qaction.setVisible(bool(locations))
         if isosx:
             # The cloned action has to have its menu updated
             self.qaction.changed.emit()
 
     def choose_library(self):
-        d = ChooseLibrary(self.gui)
+        db = self.gui.library_view.model().db
+        locations = list(self.stats.locations(db))
+        d = ChooseLibrary(self.gui, locations)
         if d.exec_() == d.Accepted:
             path, delete_after = d.args
             if not path:
@@ -507,7 +552,7 @@ class CopyToLibraryAction(InterfaceAction):
             if delete_after:
                 msg += ' ' + _('No books were deleted from this library.')
             msg += ' ' + _('The best way to resume this operation is to re-copy all the books with the option to'
-                     ' "Check for duplicates when Copying to Library" in Preferences->Adding books turned on.')
+                     ' "Check for duplicates when copying to library" in Preferences->Import/export->Adding books turned on.')
             warning_dialog(self.gui, _('Canceled'), msg, show=True)
             return
 
@@ -527,10 +572,10 @@ class CopyToLibraryAction(InterfaceAction):
             books = '\n'.join(self.worker.auto_merged_ids.itervalues())
             info_dialog(self.gui, _('Auto merged'),
                     _('Some books were automatically merged into existing '
-                        'records in the target library. Click Show '
-                        'details to see which ones. This behavior is '
-                        'controlled by the Auto merge option in '
-                        'Preferences->Adding books.'), det_msg=books,
+                        'records in the target library. Click "Show '
+                        'details" to see which ones. This behavior is '
+                        'controlled by the Auto-merge option in '
+                        'Preferences->Import/export->Adding books.'), det_msg=books,
                     show=True)
         if delete_after and self.worker.processed:
             v = self.gui.library_view

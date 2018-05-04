@@ -70,9 +70,9 @@ def register_text_editor_actions(_reg, palette):
     ac.setToolTip(_('<h3>Subscript</h3>Set the selected text slightly smaller and below the normal line'))
     ac = reg('format-text-color.png', _('&Color'), ('format_text', 'color'), 'format-text-color', (), _('Change text color'))
     ac.setToolTip(_('<h3>Color</h3>Change the color of the selected text'))
-    ac = reg('format-fill-color.png', _('&Background Color'), ('format_text', 'background-color'),
+    ac = reg('format-fill-color.png', _('&Background color'), ('format_text', 'background-color'),
              'format-text-background-color', (), _('Change background color of text'))
-    ac.setToolTip(_('<h3>Background Color</h3>Change the background color of the selected text'))
+    ac.setToolTip(_('<h3>Background color</h3>Change the background color of the selected text'))
     ac = reg('format-justify-left.png', _('Align &left'), ('format_text', 'justify_left'), 'format-text-justify-left', (), _('Align left'))
     ac.setToolTip(_('<h3>Align left</h3>Align the paragraph to the left'))
     ac = reg('format-justify-center.png', _('&Center'), ('format_text', 'justify_center'), 'format-text-justify-center', (), _('Center'))
@@ -356,6 +356,8 @@ class Editor(QMainWindow):
         state = tprefs.get('%s-editor-state' % self.syntax, None)
         if state is not None:
             self.restoreState(state)
+        for bar in self.bars:
+            bar.setVisible(len(bar.actions()) > 0)
 
     def populate_toolbars(self):
         self.action_bar.clear(), self.tools_bar.clear()
@@ -373,7 +375,10 @@ class Editor(QMainWindow):
             bar.addAction(ac)
             if name == 'insert-tag':
                 w = bar.widgetForAction(ac)
-                w.setPopupMode(QToolButton.MenuButtonPopup)
+                if hasattr(w, 'setPopupMode'):
+                    # For some unknown reason this button is occassionally a
+                    # QPushButton instead of a QToolButton
+                    w.setPopupMode(QToolButton.MenuButtonPopup)
                 w.setMenu(self.insert_tag_menu)
                 w.setContextMenuPolicy(Qt.CustomContextMenu)
                 w.customContextMenuRequested.connect(w.showMenu)
@@ -382,7 +387,10 @@ class Editor(QMainWindow):
                 m = ac.m = QMenu()
                 ac.setMenu(m)
                 ch = bar.widgetForAction(ac)
-                ch.setPopupMode(QToolButton.InstantPopup)
+                if hasattr(ch, 'setPopupMode'):
+                    # For some unknown reason this button is occassionally a
+                    # QPushButton instead of a QToolButton
+                    ch.setPopupMode(QToolButton.InstantPopup)
                 for name in tuple('h%d' % d for d in range(1, 7)) + ('p',):
                     m.addAction(actions['rename-block-tag-%s' % name])
 

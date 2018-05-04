@@ -24,6 +24,7 @@ from calibre.ebooks.metadata.sources.base import Source
 from calibre.constants import DEBUG, numeric_version
 
 builtin_names = frozenset(p.name for p in builtin_plugins)
+BLACKLISTED_PLUGINS = frozenset({'Marvin XD', 'iOS reader applications'})
 
 
 class NameConflict(ValueError):
@@ -52,7 +53,7 @@ def find_plugin(name):
 
 def load_plugin(path_to_zip_file):  # {{{
     '''
-    Load plugin from zip file or raise InvalidPlugin error
+    Load plugin from ZIP file or raise InvalidPlugin error
 
     :return: A :class:`Plugin` instance.
     '''
@@ -669,7 +670,7 @@ def initialize_plugin(plugin, path_to_zip_file):
 
 
 def has_external_plugins():
-    'True if there are updateable (zip file based) plugins'
+    'True if there are updateable (ZIP file based) plugins'
     return bool(config['plugins'])
 
 
@@ -680,7 +681,9 @@ def initialize_plugins(perf=False):
             builtin_names]
     for p in conflicts:
         remove_plugin(p)
-    external_plugins = config['plugins']
+    external_plugins = config['plugins'].copy()
+    for name in BLACKLISTED_PLUGINS:
+        external_plugins.pop(name, None)
     ostdout, ostderr = sys.stdout, sys.stderr
     if perf:
         from collections import defaultdict
@@ -756,7 +759,7 @@ def option_parser():
     Customize calibre by loading external plugins.
     '''))
     parser.add_option('-a', '--add-plugin', default=None,
-                      help=_('Add a plugin by specifying the path to the zip file containing it.'))
+                      help=_('Add a plugin by specifying the path to the ZIP file containing it.'))
     parser.add_option('-b', '--build-plugin', default=None,
             help=_('For plugin developers: Path to the directory where you are'
                 ' developing the plugin. This command will automatically zip '

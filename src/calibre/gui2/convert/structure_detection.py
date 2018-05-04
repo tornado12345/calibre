@@ -13,7 +13,7 @@ from calibre.gui2 import error_dialog
 
 class StructureDetectionWidget(Widget, Ui_Form):
 
-    TITLE = _('Structure\nDetection')
+    TITLE = _('Structure\ndetection')
     ICON  = I('chapters.png')
     HELP  = _('Fine tune the detection of chapter headings and '
             'other document structure.')
@@ -29,11 +29,11 @@ class StructureDetectionWidget(Widget, Ui_Form):
         for x in ('pagebreak', 'rule', 'both', 'none'):
             self.opt_chapter_mark.addItem(x)
         self.initialize_options(get_option, get_help, db, book_id)
-        self.opt_chapter.set_msg(_('Detect chapters at (XPath expression):'))
-        self.opt_page_breaks_before.set_msg(_('Insert page breaks before '
+        self.opt_chapter.set_msg(_('Detect &chapters at (XPath expression):'))
+        self.opt_page_breaks_before.set_msg(_('Insert &page breaks before '
             '(XPath expression):'))
         self.opt_start_reading_at.set_msg(
-                _('Start reading at (XPath expression):'))
+                _('Start &reading at (XPath expression):'))
 
     def break_cycles(self):
         Widget.break_cycles(self)
@@ -46,4 +46,3 @@ class StructureDetectionWidget(Widget, Ui_Form):
                 _('The XPath expression %s is invalid.')%x.text).exec_()
                 return False
         return True
-

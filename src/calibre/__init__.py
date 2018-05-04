@@ -405,7 +405,7 @@ def random_user_agent(choose=None, allow_ie=True):
     return random.choice(ua_list) if choose is None else ua_list[choose]
 
 
-def browser(honor_time=True, max_time=2, mobile_browser=False, user_agent=None, use_robust_parser=False, verify_ssl_certificates=True):
+def browser(honor_time=True, max_time=2, mobile_browser=False, user_agent=None, verify_ssl_certificates=True, handle_refresh=True):
     '''
     Create a mechanize browser for web scraping. The browser handles cookies,
     refresh requests and ignores robots.txt. Also uses proxy if available.
@@ -415,12 +415,8 @@ def browser(honor_time=True, max_time=2, mobile_browser=False, user_agent=None, 
     :param verify_ssl_certificates: If false SSL certificates errors are ignored
     '''
     from calibre.utils.browser import Browser
-    if use_robust_parser:
-        import mechanize
-        opener = Browser(factory=mechanize.RobustFactory(), verify_ssl=verify_ssl_certificates)
-    else:
-        opener = Browser(verify_ssl=verify_ssl_certificates)
-    opener.set_handle_refresh(True, max_time=max_time, honor_time=honor_time)
+    opener = Browser(verify_ssl=verify_ssl_certificates)
+    opener.set_handle_refresh(handle_refresh, max_time=max_time, honor_time=honor_time)
     opener.set_handle_robots(False)
     if user_agent is None:
         user_agent = USER_AGENT_MOBILE if mobile_browser else USER_AGENT
@@ -547,14 +543,14 @@ def strftime(fmt, t=None):
         t[0] = replacement
     ans = None
     if iswindows:
-        if isinstance(fmt, unicode):
-            fmt = fmt.encode('mbcs')
-        fmt = fmt.replace(b'%e', b'%#d')
+        if isinstance(fmt, bytes):
+            fmt = fmt.decode('mbcs', 'replace')
+        fmt = fmt.replace(u'%e', u'%#d')
         ans = plugins['winutil'][0].strftime(fmt, t)
     else:
         ans = time.strftime(fmt, t).decode(preferred_encoding, 'replace')
     if early_year:
-        ans = ans.replace('_early year hack##', str(orig_year))
+        ans = ans.replace(u'_early year hack##', unicode(orig_year))
     return ans
 
 
@@ -642,21 +638,21 @@ def prepare_string_for_xml(raw, attribute=False):
 
 
 def isbytestring(obj):
-    return isinstance(obj, (str, bytes))
+    return isinstance(obj, bytes)
 
 
 def force_unicode(obj, enc=preferred_encoding):
     if isbytestring(obj):
         try:
             obj = obj.decode(enc)
-        except:
+        except Exception:
             try:
                 obj = obj.decode(filesystem_encoding if enc ==
                         preferred_encoding else preferred_encoding)
-            except:
+            except Exception:
                 try:
                     obj = obj.decode('utf-8')
-                except:
+                except Exception:
                     obj = repr(obj)
                     if isbytestring(obj):
                         obj = obj.decode('utf-8')

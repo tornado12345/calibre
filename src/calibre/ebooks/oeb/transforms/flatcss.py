@@ -171,8 +171,14 @@ class CSSFlattener(object):
 
     def __call__(self, oeb, context):
         oeb.logger.info('Flattening CSS and remapping font sizes...')
-        self.context = self.opts =context
+        self.context = self.opts = context
         self.oeb = oeb
+        self.items = list(self.oeb.spine)
+        titlepage = self.oeb.guide.get('titlepage')
+        if titlepage is not None:
+            titlepage = titlepage.item
+            if titlepage is not None and titlepage not in self.items:
+                self.items.append(titlepage)
 
         self.filter_css = frozenset()
         if self.opts.filter_css:
@@ -260,7 +266,7 @@ class CSSFlattener(object):
         self.stylizers = {}
         profile = self.context.source
         css = ''
-        for item in self.oeb.spine:
+        for item in self.items:
             html = item.data
             body = html.find(XHTML('body'))
             if 'style' in html.attrib:
@@ -300,7 +306,7 @@ class CSSFlattener(object):
 
     def baseline_spine(self):
         sizes = defaultdict(float)
-        for item in self.oeb.spine:
+        for item in self.items:
             html = item.data
             stylizer = self.stylizers[item]
             body = html.find(XHTML('body'))
@@ -376,6 +382,10 @@ class CSSFlattener(object):
                 elif val in ('left', 'right'):
                     cssdict['float'] = val
             del node.attrib['align']
+        if 'valign' in node.attrib and tag == 'td':
+            if cssdict.get('vertical-align') == 'inherit':
+                cssdict['vertical-align'] = node.attrib['valign']
+            del node.attrib['valign']
         if node.tag == XHTML('font'):
             tags = ['descendant::h:%s'%x for x in ('p', 'div', 'table', 'h1',
                 'h2', 'h3', 'h4', 'h5', 'h6', 'ol', 'ul', 'dl', 'blockquote')]
@@ -420,6 +430,8 @@ class CSSFlattener(object):
             except (ValueError, SyntaxErr):
                 pass
             del node.attrib['bgcolor']
+        if tag == 'ol' and 'type' in node.attrib:
+            del node.attrib['type']
         if cssdict.get('font-weight', '').lower() == 'medium':
             cssdict['font-weight'] = 'normal'  # ADE chokes on font-weight medium
 
@@ -595,7 +607,7 @@ class CSSFlattener(object):
 
     def collect_global_css(self):
         global_css = defaultdict(list)
-        for item in self.oeb.spine:
+        for item in self.items:
             stylizer = self.stylizers[item]
             if float(self.context.margin_top) >= 0:
                 stylizer.page_rule['margin-top'] = '%gpt'%\
@@ -634,7 +646,7 @@ class CSSFlattener(object):
     def flatten_spine(self):
         names = defaultdict(int)
         styles, pseudo_styles = {}, defaultdict(dict)
-        for item in self.oeb.spine:
+        for item in self.items:
             html = item.data
             stylizer = self.stylizers[item]
             if self.specializer is not None:
@@ -657,6 +669,6 @@ class CSSFlattener(object):
 
         href = self.replace_css(css)
         global_css = self.collect_global_css()
-        for item in self.oeb.spine:
+        for item in self.items:
             stylizer = self.stylizers[item]
             self.flatten_head(item, href, global_css[item])

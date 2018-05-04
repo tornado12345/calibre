@@ -41,9 +41,9 @@ def archive_type(stream):
 class ArchiveExtract(FileTypePlugin):
     name = 'Archive Extract'
     author = 'Kovid Goyal'
-    description = _('Extract common e-book formats from archives '
-        '(zip/rar) files. Also try to autodetect if they are actually '
-        'cbz/cbr files.')
+    description = _('Extract common e-book formats from archive files '
+        '(ZIP/RAR). Also try to autodetect if they are actually '
+        'CBZ/CBR files.')
     file_types = set(['zip', 'rar'])
     supported_platforms = ['windows', 'osx', 'linux']
     on_import = True
@@ -57,8 +57,7 @@ class ArchiveExtract(FileTypePlugin):
             zf = ZipFile(archive, 'r')
 
         if is_rar:
-            with open(archive, 'rb') as rf:
-                fnames = list(names(rf))
+            fnames = list(names(archive))
         else:
             fnames = zf.namelist()
 
@@ -94,8 +93,7 @@ class ArchiveExtract(FileTypePlugin):
         of = self.temporary_file('_archive_extract.'+ext)
         with closing(of):
             if is_rar:
-                with open(archive, 'rb') as f:
-                    data = extract_member(f, match=None, name=fname)[1]
+                data = extract_member(archive, match=None, name=fname)[1]
                 of.write(data)
             else:
                 of.write(zf.read(fname))
@@ -162,9 +160,8 @@ def get_comic_metadata(stream, stream_type, series_index='volume'):
         zf = ZipFile(stream)
         comment = zf.comment
     elif stream_type == 'cbr':
-        from calibre.utils.unrar import RARFile
-        f = RARFile(stream, get_comment=True)
-        comment = f.comment
+        from calibre.utils.unrar import comment as get_comment
+        comment = get_comment(stream)
 
     if comment:
         import json
@@ -175,4 +172,3 @@ def get_comic_metadata(stream, stream_type, series_index='volume'):
                     get_comic_book_info(m[cat], mi, series_index=series_index)
                     break
     return mi
-

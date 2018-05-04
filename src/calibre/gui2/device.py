@@ -28,7 +28,6 @@ from calibre import preferred_encoding, prints, force_unicode, as_unicode, sanit
 from calibre.utils.filenames import ascii_filename
 from calibre.devices.errors import (FreeSpaceError, WrongDestinationError,
         BlacklistedDevice)
-from calibre.devices.apple.driver import ITUNES_ASYNC
 from calibre.devices.folder_device.driver import FOLDER_DEVICE
 from calibre.constants import DEBUG
 from calibre.utils.config import tweaks, device_prefs
@@ -335,7 +334,7 @@ class DeviceManager(Thread):  # {{{
                 if e.show_me:
                     traceback.print_exc()
 
-    # Mount devices that don't use USB, such as the folder device and iTunes
+    # Mount devices that don't use USB, such as the folder device
     # This will be called on the GUI thread. Because of this, we must store
     # information that the scanner thread will use to do the real work.
     def mount_device(self, kls, kind, path):
@@ -601,9 +600,9 @@ class DeviceManager(Thread):  # {{{
 
     def upload_books(self, done, files, names, on_card=None, titles=None,
                      metadata=None, plugboards=None, add_as_step_to_job=None):
-        desc = ngettext('Upload one book to the device', 'Upload {} books to device', len(names)).format(len(names))
+        desc = ngettext('Upload one book to the device', 'Upload {} books to the device', len(names)).format(len(names))
         if titles:
-            desc += u':' + u', '.join(titles)
+            desc += u': ' + u', '.join(titles)
         return self.create_job_step(self._upload_books, done, to_job=add_as_step_to_job,
                                args=[files, names],
                 kwargs={'on_card':on_card,'metadata':metadata,'plugboards':plugboards}, description=desc)
@@ -953,10 +952,7 @@ class DeviceMixin(object):  # {{{
         if dir is not None:
             self.device_manager.mount_device(kls=FOLDER_DEVICE, kind='folder', path=dir)
 
-    def connect_to_itunes(self):
-        self.device_manager.mount_device(kls=ITUNES_ASYNC, kind='itunes', path=None)
-
-    # disconnect from both folder and itunes devices
+    # disconnect from folder devices
     def disconnect_mounted_device(self):
         self.device_manager.umount_device()
 
@@ -968,8 +964,6 @@ class DeviceMixin(object):  # {{{
                     _('Cannot configure the device while there are running'
                         ' device jobs.'), show=True)
         dev = self.device_manager.connected_device
-        prefname = 'plugin config dialog:' + dev.type + ':' + dev.name
-        geom = gprefs.get(prefname, None)
 
         cw = dev.config_widget()
         config_dialog = QDialog(self)
@@ -983,9 +977,9 @@ class DeviceMixin(object):  # {{{
         bb.rejected.connect(config_dialog.reject)
         l.addWidget(cw)
         l.addWidget(bb)
+        # We do not save/restore the size of this dialog as different devices
+        # have very different size requirements
         config_dialog.resize(config_dialog.sizeHint())
-        if geom is not None:
-            config_dialog.restoreGeometry(geom)
 
         def validate():
             if cw.validate():
@@ -993,8 +987,6 @@ class DeviceMixin(object):  # {{{
         config_dialog.accept = validate
         if config_dialog.exec_() == config_dialog.Accepted:
             dev.save_settings(cw)
-            geom = bytearray(config_dialog.saveGeometry())
-            gprefs[prefname] = geom
 
             do_restart = show_restart_warning(_('Restart calibre for the changes to %s'
                 ' to be applied.')%dev.get_gui_name(), parent=self)
@@ -1255,11 +1247,11 @@ class DeviceMixin(object):  # {{{
                             format_count[f] = 1
             for f in self.device_manager.device.settings().format_map:
                 if f in format_count.keys():
-                    formats.append((f, _('%(num)i of %(total)i Books') % dict(
+                    formats.append((f, _('%(num)i of %(total)i books') % dict(
                         num=format_count[f], total=len(rows)),
                         True if f in aval_out_formats else False))
                 elif f in aval_out_formats:
-                    formats.append((f, _('0 of %i Books') % len(rows), True))
+                    formats.append((f, _('0 of %i books') % len(rows), True))
             d = ChooseFormatDeviceDialog(self, _('Choose format to send to device'), formats)
             if d.exec_() != QDialog.Accepted:
                 return

@@ -25,6 +25,7 @@ def human_readable(size, precision=2):
     """ Convert a size in bytes into megabytes """
     return ('%.'+str(precision)+'f'+ 'MB') % ((size/(1024.*1024.)),)
 
+
 NULL_VALUES = {
                 'user_metadata': {},
                 'cover_data'   : (None, None),
@@ -47,6 +48,7 @@ field_metadata = FieldMetadata()
 def reset_field_metadata():
     global field_metadata
     field_metadata = FieldMetadata()
+
 
 ck = lambda typ: icu_lower(typ).strip().replace(':', '').replace(',', '')
 cv = lambda val: val.strip().replace(',', '|')
@@ -72,6 +74,7 @@ class Metadata(object):
     Please keep the method based API of this class to a minimum. Every method
     becomes a reserved field name.
     '''
+    __calibre_serializable__ = True
 
     def __init__(self, title, authors=(_('Unknown'),), other=None, template_cache=None,
                  formatter=None):
@@ -113,6 +116,10 @@ class Metadata(object):
             return not val or val == null_val
         except:
             return True
+
+    def set_null(self, field):
+        null_val = copy.copy(NULL_VALUES.get(field))
+        setattr(self, field, null_val)
 
     def __getattribute__(self, field):
         _data = object.__getattribute__(self, '_data')
@@ -824,6 +831,3 @@ def field_from_string(field, raw, field_metadata):
     if val is object:
         val = raw
     return val
-
-
-

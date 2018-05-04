@@ -1,19 +1,19 @@
 .. _conversion:
 
-Ebook Conversion
+E-book conversion
 ===================
 
 calibre has a conversion system that is designed to be very easy to use.
 Normally, you just add a book to calibre, click convert and calibre will try hard
 to generate output that is as close as possible to the input. However, calibre
 accepts a very large number of input formats, not all of which are as suitable
-as others for conversion to ebooks. In the case of such input formats, or if
+as others for conversion to e-books. In the case of such input formats, or if
 you just want greater control over the conversion system, calibre has a lot of
 options to fine tune the conversion process. Note however that calibre's
-conversion system is not a substitute for a full blown ebook editor. To edit
-ebooks, I recommend first converting them to EPUB or AZW3 using calibre and
-then using the Edit Book feature to get them into perfect shape. You can then
-use the edited ebook as input for conversion into other formats in calibre.
+conversion system is not a substitute for a full blown e-book editor. To edit
+e-books, I recommend first converting them to EPUB or AZW3 using calibre and
+then using the :guilabel:`Edit book` feature to get them into perfect shape. You can then
+use the edited e-book as input for conversion into other formats in calibre.
 
 This document will refer mainly to the conversion settings as found in the
 conversion dialog, pictured below. All these settings are also available via
@@ -23,7 +23,7 @@ it, a tooltip will appear describing the setting.
 
 .. image:: images/conv_dialog.png
     :align: center
-    :alt: Ebook conversion dialog
+    :alt: E-book conversion dialog
     :class: half-width-img
 
 .. contents:: Contents
@@ -48,7 +48,7 @@ Schematically, it looks like this:
 
 The input format is first converted to XHTML by the appropriate *Input Plugin*.
 This HTML is then *transformed*. In the last step, the processed XHTML is converted
-to the specified output format by the appropriate *Output Plugin*. The results
+to the specified output format by the appropriate *output plugin*. The results
 of the conversion can vary greatly, based on the input format. Some formats
 convert much better than others. A list of the best source formats for conversion
 is available :ref:`here <best-source-formats>`.
@@ -59,7 +59,7 @@ to detect chapter headings and automatically create a Table of Contents, to prop
 adjust font sizes, et cetera. It is important to remeber that all the transforms act on the
 XHTML output by the *Input Plugin*, not on the input file itself. So, for example, if you ask calibre
 to convert an RTF file to EPUB, it will first be converted to XHTML internally,
-the various transforms will be applied to the XHTML and then the *Output Plugin* will
+the various transforms will be applied to the XHTML and then the *output plugin* will
 create the EPUB file, automatically generating all metadata, Table of Contents, et cetera.
 
 You can see this process in action by using the debug option |dbgi|. Just specify the path to
@@ -75,30 +75,30 @@ The four sub-directories are:
     input         This contains the HTML output by the Input Plugin. Use this to debug the Input Plugin.
     parsed        The result of pre-processing and converting to XHTML the output from the Input Plugin. Use to debug structure detection. 
     structure     Post structure detection, but before CSS flattening and font size conversion. Use to debug font size conversion and CSS transforms.
-    processed     Just before the ebook is passed to the output plugin. Use to debug the Output Plugin.
+    processed     Just before the e-book is passed to the output plugin. Use to debug the output plugin.
     ==========    =============
 
 If you want to edit the input document a little before having calibre convert it, the best thing to 
-do is edit the files in the :file:`input` sub-directory, then zip it up, and use the zip file as the 
+do is edit the files in the :file:`input` sub-directory, then zip it up, and use the ZIP file as the 
 input format for subsequent conversions. To do this use the :guilabel:`Edit meta information` dialog
-to add the zip file as a format for the book and then, in the top left corner of the conversion dialog,
+to add the ZIP file as a format for the book and then, in the top left corner of the conversion dialog,
 select ZIP as the input format.
 
 This document will deal mainly with the various transforms that operate on the intermediate XHTML
-and how to control them. At the end are some tips specific to each Input/Output format.
+and how to control them. At the end are some tips specific to each input/output format.
 
-Look & Feel
+Look & feel
 -------------
 
 .. contents:: Contents
   :depth: 1
   :local:
 
-This group of options controls various aspects of the look and feel of the converted ebook. 
+This group of options controls various aspects of the look and feel of the converted e-book. 
 
 .. _font-size-rescaling:
 
-Font size rescaling
+Fonts
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 One of the nicest features of the e-reading experience is the ability to easily adjust font sizes to
@@ -114,7 +114,7 @@ font sizes are rescaled appropriately. By choosing a larger base font size, you 
 in the document larger and vice versa. When you set the base font size, for best results, you should
 also set the font size key.
 
-Normally, calibre will automatically choose a base font size appropriate to the Output Profile you
+Normally, calibre will automatically choose a base font size appropriate to the output profile you
 have chosen (see :ref:`page-setup`). However, you can override this here in case the default is
 not suitable for you.
 
@@ -155,9 +155,36 @@ lines. By default, (a line height of 0), no manipulation of line heights is perf
 you specify a non-default value, line heights will be set in all locations that don't specify their
 own line heights. However, this is something of a blunt weapon and should be used sparingly.
 If you want to adjust the line heights for some section of the input, it's better to use
-the :ref:`extra-css`.
+the :ref:`Extra CSS <extra-css>`.
 
-Paragraph spacing
+In this section you can also tell calibre to embed any referenced fonts into
+the book. This will allow the fonts to work on reader devices even if they are
+not available on the device. 
+
+Text
+~~~~~~~~
+
+Text can be either justified or not. Justified text has extra spaces between
+words to give a smooth right margin. Some people prefer justified text, others
+do not. Normally, calibre will preserve the justification in the original
+document. If you want to override it you can use the :guilabel:`Text
+justification` option in this section.
+
+You can also tell calibre to :guilabel:`Smarten punctuation` which will replace
+plain quotes, dashes and ellipses with their typographically correct alternatives.
+Note that this algorithm is not perfect so it is worth reviewing the results.
+The reverse, namely, :guilabel:`Unsmarted punctuation` is also available.
+
+Finally, there is :guilabel:`Input character encoding`.  Older documents
+sometimes don't specify their character encoding. When converted, this can
+result in non-English characters or special characters like smart quotes being
+corrupted.  calibre tries to auto-detect the character encoding of the source
+document, but it does not always succeed. You can force it to assume a
+particular character encoding by using this setting.  `cp1252` is a common
+encoding for documents produced using Windows software. You should also read
+:ref:`char-encoding-faq` for more on encoding issues.
+ 
+Layout
 ~~~~~~~~~~~~~~~~~~~
 
 Normally, paragraphs in XHTML are rendered with a blank line between them and no leading text
@@ -172,7 +199,7 @@ it performs as advertised, irrespective of how messy the input file is. The one 
 when the input file uses hard line breaks to implement inter-paragraph spacing.
 
 If you want to remove the spacing between all paragraphs, except a select few, don't use these
-options. Instead add the following CSS code to :ref:`extra-css`::
+options. Instead add the following CSS code to :ref:`Extra CSS <extra-css>`::
 
     p, div { margin: 0pt; border: 0pt; text-indent: 1.5em }
     .spacious { margin-bottom: 1em; text-indent: 0pt; }
@@ -181,17 +208,25 @@ Then, in your source document, mark the paragraphs that need spacing with `class
 If your input document is not in HTML, use the Debug option, described in the Introduction to get HTML
 (use the :file:`input` sub-directory).
 
+Another useful options is :guilabel:`Linearize tables`.  Some badly designed
+documents use tables to control the layout of text on the page.  When converted
+these documents often have text that runs off the page and other artifacts.
+This option will extract the content from the tables and present it in a linear
+fashion.  Note that this option linearizes *all* tables, so only use it if you
+are sure the input document does not use tables for legitimate purposes, like
+presenting tabular information.
+
+Styling
+~~~~~~~~~~
 
 .. _extra-css:
 
-Extra CSS
-~~~~~~~~~~
-
-This option allows you to specify arbitrary CSS that will be applied to all HTML files in the
-input. This CSS is applied with very high priority and so should override most CSS present in
-the **input document** itself. You can use this setting to fine tune the presentation/layout of your
-document. For example, if you want all paragraphs of class `endnote` to be right aligned, just 
-add::
+The :guilabel:`Extra CSS` option allows you to specify arbitrary CSS that will
+be applied to all HTML files in the input. This CSS is applied with very high
+priority and so should override most CSS present in the **input document**
+itself. You can use this setting to fine tune the presentation/layout of your
+document. For example, if you want all paragraphs of class `endnote` to be
+right aligned, just add::
     
     .endnote { text-align: right }
 
@@ -203,72 +238,49 @@ or if you want to change the indentation of all paragraphs::
 to use it to its full potential. You can use the debug pipeline option described above to see what
 CSS is present in your input document.
 
-Miscellaneous
-~~~~~~~~~~~~~~
+A simpler option is to use :guilabel:`Filter style information`. This allows
+you to remove all CSS properties of the specified types from the document. For
+example, you can use it to remove all colors or fonts.
 
-There are a few more options in this section.
+Transform styles
+~~~~~~~~~~~~~~~~~~~
 
-:guilabel:`No text justification`
-    Normally, if the output format supports it, calibre will force the output ebook
-    to have *justified* text (i.e., a smooth right margin). This option will turn
-    off this behavior, in which case whatever justification is specified in the input document
-    will be used instead.
+This is the most powerful styling related facility. You can use it to define
+rules that change styles based on various conditions. For example you can use
+it to change all green colors to blue, or remove all bold styling from the text
+or color all headings a certain color, etc.
 
-:guilabel:`Linearize tables`
-    Some badly designed documents use tables to control the layout of text on the page.
-    When converted these documents often have text that runs off the page and other artifacts.
-    This option will extract the content from the tables and present it in a linear fashion.
-    Note that this option linearizes *all* tables, so only use it if you are sure the
-    input document does not use tables for legitimate purposes, like presenting tabular information.
-
-:guilabel:`Transliterate unicode characters`
-    Transliterate unicode characters to an ASCII representation. Use with care because this will
-    replace unicode characters with ASCII. For instance it will replace "Михаил Горбачёв"
-    with "Mikhail Gorbachiov". Also, note that in cases where there are multiple representations
-    of a character (characters shared by Chinese and Japanese for instance) the representation used
-    by the largest number of people will be used (Chinese in the previous example).
-    This option is mainly useful if you are going to view the ebook on a device that does not
-    have support for unicode.
-
-:guilabel:`Input character encoding`
-    Older documents sometimes don't specify their character encoding. When converted, this can
-    result in non-English characters or special characters like smart quotes being corrupted. 
-    calibre tries to auto-detect the character encoding of the source document, but it does not
-    always succeed. You can force it to assume a particular character encoding by using this setting.
-    `cp1252` is a common encoding for documents produced using windows software. You should also read
-    :ref:`char-encoding-faq` for more on encoding issues.
-    
 
 .. _page-setup:
 
-Page Setup
+Page setup
 -------------
 
-The Page Setup options are for controlling screen layout, like margins and screen sizes. There are
-options to setup page margins, which will be used by the Output Plugin, if the selected Output Format
-supports page margins. In addition, you should choose an Input profile and an Output profile. Both sets
+The :guilabel:`Page setup` options are for controlling screen layout, like margins and screen sizes. There are
+options to setup page margins, which will be used by the output plugin, if the selected output format
+supports page margins. In addition, you should choose an Input profile and an output profile. Both sets
 of profiles basically deal with how to interpret measurements in the input/output documents, screen sizes
 and default font rescaling keys. 
 
 If you know that the file you are converting was intended to be used on a particular device/software platform,
 choose the corresponding input profile, otherwise just choose the default input profile. If you know the files
-you are producing are meant for a particular device type, choose the corresponding Output profile. In particular, for MOBI Output files, you should choose the Kindle, for LIT the Microsoft Reader and for EPUB the Sony Reader. In the case of EPUB, the Sony Reader profile will result in EPUB files that will work everywhere. However, it has some side effects, like inserting artificial section breaks to keep internal components below the size threshold, needed for SONY devices. In particular for the iPhone/Android phones, choose the SONY output profile. If you know your EPUB files will not be read on a SONY or similar device, use the default output profile. If you are producing MOBI files that are not intended for the Kindle, choose the Mobipocket books output profile.
+you are producing are meant for a particular device type, choose the corresponding output profile. In particular, for MOBI output files, you should choose the Kindle, for LIT the Microsoft Reader and for EPUB the Sony Reader. In the case of EPUB, the Sony Reader profile will result in EPUB files that will work everywhere. However, it has some side effects, like inserting artificial section breaks to keep internal components below the size threshold, needed for SONY devices. In particular for the iPhone/Android phones, choose the SONY output profile. If you know your EPUB files will not be read on a SONY or similar device, use the default output profile. If you are producing MOBI files that are not intended for the Kindle, choose the Mobipocket books output profile.
 
-The Output profile also controls the screen size. This will cause, for example, images to be auto-resized to be fit to the screen in some output formats. So choose a profile of a device that has a screen size similar to your device.
+The output profile also controls the screen size. This will cause, for example, images to be auto-resized to be fit to the screen in some output formats. So choose a profile of a device that has a screen size similar to your device.
 
 .. _heuristic-processing:
 
-Heuristic Processing
+Heuristic processing
 ---------------------
 
-Heuristic Processing provides a variety of functions which can be used to try and detect and correct 
+Heuristic processing provides a variety of functions which can be used to try and detect and correct 
 common problems in poorly formatted input documents.  Use these functions if your input document suffers 
 from poor formatting. Because these functions rely on common patterns, be aware that in some cases an 
 option may lead to worse results, so use with care.  As an example, several of these options will
 remove all non-breaking-space entities, or may include false positive matches relating to the function.
 
 :guilabel:`Enable heuristic processing`
-    This option activates calibre's Heuristic Processing stage of the conversion pipeline.
+    This option activates calibre's :guilabel:`Heuristic processing` stage of the conversion pipeline.
     This must be enabled in order for various sub-functions to be applied
 
 :guilabel:`Unwrap lines`
@@ -289,8 +301,8 @@ remove all non-breaking-space entities, or may include false positive matches re
     for chapter headings; <h3> tags are used for any titles that are detected.  
     
     This function will not create a TOC, but in many cases it will cause calibre's default chapter detection settings 
-    to correctly detect chapters and build a TOC.  Adjust the XPath under Structure Detection if a TOC is not automatically
-    created.  If there are no other headings used in the document then setting "//h:h2" under Structure Detection would
+    to correctly detect chapters and build a TOC.  Adjust the XPath under Structure detection if a TOC is not automatically
+    created.  If there are no other headings used in the document then setting "//h:h2" under Structure detection would
     be the easiest way to create a TOC for the document.
     
     The inserted headings are not formatted, to apply formatting use the :guilabel:`Extra CSS` option under
@@ -319,11 +331,11 @@ remove all non-breaking-space entities, or may include false positive matches re
     If this option is configured then calibre will replace scene break markers it finds with the replacement text specified by the
     user.  Please note that some ornamental characters may not be supported across all reading devices.
     
-    In general you should avoid using html tags, calibre will discard any tags and use pre-defined markup.  <hr />
+    In general you should avoid using HTML tags, calibre will discard any tags and use pre-defined markup.  <hr />
     tags, i.e. horizontal rules, and <img> tags are exceptions.  Horizontal rules can optionally be specified with styles, if you 
     choose to add your own style be sure to include the 'width' setting, otherwise the style information will be discarded.  Image 
     tags can used, but calibre does not provide the ability to add the image during conversion, this must be done after the fact using 
-    the 'Edit Book' feature.
+    the 'Edit book' feature.
         
         Example image tag (place the image within an 'Images' folder inside the epub after conversion):
             <img style="width:10%" src="../Images/scenebreak.png" />
@@ -345,11 +357,11 @@ remove all non-breaking-space entities, or may include false positive matches re
 
 :guilabel:`Replace entity indents with CSS indents`
     Some documents use a convention of defining text indents using non-breaking space entities.  When this option is enabled calibre will
-    attempt to detect this sort of formatting and convert them to a 3% text indent using css.
+    attempt to detect this sort of formatting and convert them to a 3% text indent using CSS.
 
 .. _search-replace:
 
-Search & Replace
+Search & replace
 ---------------------
 
 These options are useful primarily for conversion of PDF documents or OCR conversions, though they can 
@@ -360,14 +372,14 @@ by the conversion pipeline. There is a wizard to help you customize the regular 
 your document.  Click the magic wand beside the expression box, and click the 'Test' button after composing 
 your search expression.  Successful matches will be highlighted in Yellow.
 
-The search works by using a python regular expression. All matched text is simply removed from 
+The search works by using a Python regular expression. All matched text is simply removed from 
 the document or replaced using the replacement pattern. The replacement pattern is optional, if left blank 
 then text matching the search pattern will be deleted from the document.  You can learn more about regular expressions  
 and their syntax at :ref:`regexptutorial`.
 
 .. _structure-detection:
 
-Structure Detection
+Structure detection
 ---------------------
 
 Structure detection involves calibre trying its best to detect structural elements in the input document, when they are not properly specified. For example, chapters, page breaks, headers, footers, etc. As you can imagine, this process varies widely from book to book. Fortunately, calibre has very powerful options to control this. With power comes complexity, but if once you take the time to learn the complexity, you will find it well worth the effort.
@@ -381,7 +393,7 @@ The reason for this is that there are often location where page breaks should be
 Also, detected chapters can be optionally inserted into the auto generated Table of Contents. 
 
 calibre uses *XPath*, a powerful language to allow the user to specify chapter boundaries/page breaks. XPath can seem a little daunting
-to use at first, fortunately, there is a :ref:`XPath tutorial <xpath-tutorial>` in the User Manual. Remember that Structure Detection
+to use at first, fortunately, there is a :ref:`XPath tutorial <xpath-tutorial>` in the User Manual. Remember that Structure detection
 operates on the intermediate XHTML produced by the conversion pipeline. Use the debug option described in the
 :ref:`conversion-introduction` to figure out the appropriate settings for your book. There is also a button for a XPath wizard
 to help with the generation of simple XPath expressions.
@@ -416,7 +428,7 @@ There are a few more options in this section.
 :guilabel:`Insert metadata as page at start of book`
     One of the great things about calibre is that it allows you to maintain very complete metadata
     about all of your books, for example, a rating, tags, comments, etc. This option will create
-    a single page with all this metadata and insert it into the converted ebook, typically just
+    a single page with all this metadata and insert it into the converted e-book, typically just
     after the cover. Think of it as a way to create your own customised book jacket.
 
 :guilabel:`Remove first image`
@@ -432,7 +444,7 @@ Table of Contents
 When the input document has a Table of Contents in its metadata, calibre will just use that. However,
 a number of older formats either do not support a metadata based Table of Contents, or individual
 documents do not have one. In these cases, the options in this section can help you automatically
-generate a Table of Contents in the converted ebook, based on the actual content in the input document.
+generate a Table of Contents in the converted e-book, based on the actual content in the input document.
 
 .. note:: Using these options can be a little challenging to get exactly right.
     If you prefer creating/editing the Table of Contents by hand, convert to
@@ -442,9 +454,9 @@ generate a Table of Contents in the converted ebook, based on the actual content
     This will launch the ToC Editor tool after the conversion. It allows you to
     create entries in the Table of Contents by simply clicking the place in the
     book where you want the entry to point. You can also use the ToC Editor by
-    itself, without doing a conversion. Go to :guilabel:`Preferences->Toolbars`
-    and add the ToC Editor to the main toolbar. Then just select the book you
-    want to edit and click the ToC Editor button.
+    itself, without doing a conversion. Go to :guilabel:`Preferences->Interface->Toolbars`
+    and add the :guilabel:`ToC Editor` to the main toolbar. Then just select the book you
+    want to edit and click the :guilabel:`ToC Editor` button.
 
 The first option is :guilabel:`Force use of auto-generated Table of Contents`. By checking this option
 you can have calibre override any Table of Contents found in the metadata of the input document with the
@@ -512,7 +524,7 @@ This will result in an automatically generated two level Table of Contents that 
 
 .. warning::
 
-    Not all output formats support a multi level Table of Contents. You should first try with EPUB Output. If that
+    Not all output formats support a multi level Table of Contents. You should first try with EPUB output. If that
     works, then try your format of choice. 
 
 Using images as chapter titles when converting HTML input documents
@@ -569,12 +581,13 @@ used by default.
 You can also change settings in the conversion dialog for each book conversion.
 When you convert a book, calibre remembers the settings you used for that book,
 so that if you convert it again, the saved settings for the individual book
-will take precedence over the defaults set in Preferences. You can restore the
-individual settings to defaults by using the Restore to defaults button in the
-individual book conversion dialog. You can remove the saved settings for a
-group of books by selecting all the books and then clicking the edit metadata
-button to bring up the bulk metadata edit dialog, near the bottom of the dialog
-is an option to remove stored conversion settings.
+will take precedence over the defaults set in :guilabel:`Preferences`. You can
+restore the individual settings to defaults by using the :guilabel:`Restore defaults`
+button in the individual book conversion dialog. You can remove the
+saved settings for a group of books by selecting all the books and then
+clicking the :guilabel:`Edit metadata` button to bring up the bulk metadata
+edit dialog, near the bottom of the dialog is an option to remove stored
+conversion settings.
 
 When you Bulk Convert a set of books, settings are taken in the following order (last one wins):
 
@@ -606,7 +619,7 @@ Format specific tips
 
 Here you will find tips specific to the conversion of particular formats. Options specific to particular
 format, whether input or output are available in the conversion dialog under their own section, for example
-`TXT Input` or `EPUB Output`.
+`TXT input` or `EPUB output`.
 
 Convert Microsoft Word documents
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -621,8 +634,8 @@ the latest version of calibre as support for ``.docx`` files is very new).
     download it and convert it to EPUB or AZW3 to see what calibre can do.
 
 calibre will automatically generate a Table of Contents based on headings if you mark
-your headings with the ``Heading 1``, ``Heading 2``, etc. styles in Word. Open
-the output ebook in the calibre viewer and click the Table of Contents button
+your headings with the ``Heading 1``, ``Heading 2``, etc. styles in Microsoft Word. Open
+the output e-book in the calibre E-book viewer and click the :guilabel:`Table of Contents` button
 to view the generated Table of Contents.
 
 Older .doc files
@@ -649,11 +662,11 @@ conventions.
 
 TXT input supports a number of options to differentiate how paragraphs are detected.
 
-    :guilabel:`Paragraph Style: Auto`
+    :guilabel:`Paragraph style: Auto`
         Analyzes the text file and attempts to automatically determine how paragraphs are defined.  This
         option will generally work fine, if you achieve undesirable results try one of the manual options.
 
-    :guilabel:`Paragraph Style: Block`
+    :guilabel:`Paragraph style: Block`
         Assumes one or more blank lines are a paragraph boundary::
         
             This is the first.
@@ -661,14 +674,14 @@ TXT input supports a number of options to differentiate how paragraphs are detec
             This is the
             second paragraph.
 
-    :guilabel:`Paragraph Style: Single`
+    :guilabel:`Paragraph style: Single`
         Assumes that every line is a paragraph::
 
             This is the first.
             This is the second.
             This is the third.
         
-    :guilabel:`Paragraph Style: Print`
+    :guilabel:`Paragraph style: Print`
         Assumes that every paragraph starts with an indent (either a tab or 2+ spaces). Paragraphs end when
         the next line that starts with an indent is reached::
 
@@ -679,27 +692,27 @@ TXT input supports a number of options to differentiate how paragraphs are detec
               This is the
             third.
 
-    :guilabel:`Paragraph Style: Unformatted`
+    :guilabel:`Paragraph style: Unformatted`
         Assumes that the document has no formatting, but does use hard line breaks.  Punctuation
         and median line length are used to attempt to re-create paragraphs.
 
-    :guilabel:`Formatting Style: Auto`
+    :guilabel:`Formatting style: Auto`
         Attempts to detect the type of formatting markup being used.  If no markup is used then heuristic
         formatting will be applied.
 
-    :guilabel:`Formatting Style: Heuristic`
+    :guilabel:`Formatting style: Heuristic`
         Analyzes the document for common chapter headings, scene breaks, and italicized words and applies the
-        appropriate html markup during conversion.
+        appropriate HTML markup during conversion.
 
-    :guilabel:`Formatting Style: Markdown`
-        calibre also supports running TXT input though a transformation preprocessor known as markdown. Markdown
+    :guilabel:`Formatting style: Markdown`
+        calibre also supports running TXT input though a transformation preprocessor known as Markdown. Markdown
         allows for basic formatting to be added to TXT documents, such as bold, italics, section headings, tables,
         lists, a Table of Contents, etc. Marking chapter headings with a leading # and setting the chapter XPath detection
         expression to "//h:h1" is the easiest way to have a proper table of contents generated from a TXT document.
-        You can learn more about the markdown syntax at `daringfireball <https://daringfireball.net/projects/markdown/syntax>`_.
+        You can learn more about the Markdown syntax at `daringfireball <https://daringfireball.net/projects/markdown/syntax>`_.
 
-    :guilabel:`Formatting Style: None`
-        Applies no special formatting to the text, the document is converted to html with no other changes.
+    :guilabel:`Formatting style: None`
+        Applies no special formatting to the text, the document is converted to HTML with no other changes.
 
 .. _pdfconversion:
 
@@ -731,10 +744,10 @@ Some limitations of PDF input are:
 To re-iterate **PDF is a really, really bad** format to use as input. If you absolutely must use PDF, then be prepared for an
 output ranging anywhere from decent to unusable, depending on the input PDF.
 
-Comic Book Collections
+Comic book collections
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A comic book collection is a .cbc file. A .cbc file is a zip file that contains other CBZ/CBR files. In addition the
+A comic book collection is a .cbc file. A .cbc file is a ZIP file that contains other CBZ/CBR files. In addition the
 .cbc file must contain a simple text file called comics.txt, encoded in UTF-8. The comics.txt file must contain
 a list of the comics files inside the .cbc file, in the form filename:title, as shown below::
 
@@ -749,7 +762,7 @@ The .cbc file will then contain::
     two.cbz
     three.cbz
 
-calibre will automatically convert this .cbc file into a ebook with a Table of Contents pointing to each entry in comics.txt.
+calibre will automatically convert this .cbc file into a e-book with a Table of Contents pointing to each entry in comics.txt.
 
 
 EPUB advanced formatting demo
@@ -805,12 +818,13 @@ Converting to PDF
 ~~~~~~~~~~~~~~~~~~~
 
 The first, most important, setting to decide on when converting to PDF is the page
-size. By default, calibre uses a page size defined by the current
-:guilabel:`Output profile`. So if your output profile is set to Kindle, calibre
+size. By default, calibre uses a page size of "U.S. Letter". You can change this
+to another standard page size or a completely custom size in the :guilabel:`PDF Output`
+section of the conversion dialog. If you are generating a PDF to be used on a
+specific device, you can turn on the option to use the page size from the
+:guilabel:`output profile` instead. So if your output profile is set to Kindle, calibre
 will create a PDF with page size suitable for viewing on the small kindle
-screen. However, if you view this PDF file on a computer screen, then it will
-appear to have too large fonts. To create "normal" sized PDFs, use the
-:guilabel:`Override page size` option under :guilabel:`PDF Output` in the conversion dialog.
+screen. 
 
 Headers and Footers
 ^^^^^^^^^^^^^^^^^^^^
@@ -856,7 +870,7 @@ of 1::
     <p id="pagenum" style="text-align:center;"></p><script>document.getElementById("pagenum").innerHTML = "" + (_PAGENUM_ + 3)</script>
 
 .. note:: When adding headers and footers make sure you set the page top and
-    bottom margins to large enough values, under the Page Setup section of the
+    bottom margins to large enough values, under the Page setup section of the
     conversion dialog.
 
 Printable Table of Contents
@@ -868,7 +882,7 @@ print out the PDF to paper. If you wish to use the PDF on an electronic device,
 then the PDF Outline provides this functionality and is generated by default.
 
 You can customize the look of the generated Table of contents by using the
-Extra CSS conversion setting under the Look & Feel part of the conversion
+Extra CSS conversion setting under the Look & feel part of the conversion
 dialog. The default css used is listed below, simply copy it and make whatever
 changes you like.
 

@@ -14,6 +14,7 @@ from future_builtins import map
 
 from lxml import etree
 
+from calibre import fit_image
 from calibre.ebooks.oeb.base import urlunquote
 from calibre.ebooks.docx.images import pt_to_emu
 from calibre.utils.filenames import ascii_filename
@@ -40,8 +41,9 @@ def get_image_margins(style):
 
 class ImagesManager(object):
 
-    def __init__(self, oeb, document_relationships):
+    def __init__(self, oeb, document_relationships, opts):
         self.oeb, self.log = oeb, oeb.log
+        self.page_width, self.page_height = opts.output_profile.width_pts, opts.output_profile.height_pts
         self.images = {}
         self.seen_filenames = set()
         self.document_relationships = document_relationships
@@ -92,15 +94,23 @@ class ImagesManager(object):
         else:
             parent = html_img.getparent()
             if len(parent) == 1 and not (parent.text or '').strip() and not (html_img.tail or '').strip():
-                # We have an inline image alone inside a block
                 pstyle = stylizer.style(parent)
-                if pstyle['text-align'] in ('center', 'right') and 'block' in pstyle['display']:
-                    floating = pstyle['text-align']
+                if 'block' in pstyle['display']:
+                    # We have an inline image alone inside a block
+                    as_block = True
+                    floating = pstyle['float']
+                    if floating not in {'left', 'right'}:
+                        floating = None
+                        if pstyle['text-align'] in ('center', 'right'):
+                            floating = pstyle['text-align']
+                    floating = floating or 'left'
         fake_margins = floating is None
         self.count += 1
         img = self.images[href]
         name = urlunquote(posixpath.basename(href))
-        width, height = map(pt_to_emu, style.img_size(img.width, img.height))
+        width, height = style.img_size(img.width, img.height)
+        scaled, width, height = fit_image(width, height, self.page_width, self.page_height)
+        width, height = map(pt_to_emu, (width, height))
 
         makeelement, namespaces = self.document_relationships.namespace.makeelement, self.document_relationships.namespace.namespaces
 
@@ -174,9 +184,16 @@ class ImagesManager(object):
         finally:
             item.unload_data_from_memory(False)
 
-    def create_cover_markup(self, img, width, height):
+    def create_cover_markup(self, img, preserve_aspect_ratio, width, height):
         self.count += 1
         makeelement, namespaces = self.document_relationships.namespace.makeelement, self.document_relationships.namespace.namespaces
+        if preserve_aspect_ratio:
+            if img.width >= img.height:
+                ar = img.height / img.width
+                height = ar * width
+            else:
+                ar = img.width / img.height
+                width = ar * height
 
         root = etree.Element('root', nsmap=namespaces)
         ans = makeelement(root, 'w:drawing', append=False)

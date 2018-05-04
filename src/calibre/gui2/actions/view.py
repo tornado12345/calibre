@@ -50,7 +50,7 @@ class ViewAction(InterfaceAction):
         cm = partial(self.create_menu_action, self.view_menu)
         self.view_specific_action = cm('specific', _('View specific format'),
                 shortcut='Alt+V', triggered=self.view_specific_format)
-        self.internal_view_action = cm('internal', _('View with calibre viewer'), triggered=self.view_internal)
+        self.internal_view_action = cm('internal', _('View with calibre E-book viewer'), triggered=self.view_internal)
         self.action_pick_random = cm('pick random', _('Read a random book'),
                 icon='random.png', triggered=self.view_random)
         self.clear_sep1 = self.view_menu.addSeparator()
@@ -139,7 +139,7 @@ class ViewAction(InterfaceAction):
                                     'Windows will try to open %s with calibre itself'
                                     ' resulting in a duplicate in your calibre library. You'
                                     ' should install some program capable of viewing this'
-                                    ' file format and tell windows to use that program to open'
+                                    ' file format and tell Windows to use that program to open'
                                     ' files of this type.') % name, show=True)
 
                 open_local_file(name)
@@ -200,15 +200,15 @@ class ViewAction(InterfaceAction):
         book_id = self.gui.library_view.model().id(row)
         self.gui.book_details.open_fmt_with.emit(book_id, fmt, entry)
 
-    def _view_check(self, num, max_=3):
+    def _view_check(self, num, max_=5, skip_dialog_name=None):
         if num <= max_:
             return True
-        return question_dialog(self.gui, _('Multiple Books Selected'),
+        return question_dialog(self.gui, _('Multiple books selected'),
                 _('You are attempting to open %d books. Opening too many '
                 'books at once can be slow and have a negative effect on the '
                 'responsiveness of your computer. Once started the process '
                 'cannot be stopped until complete. Do you wish to continue?'
-                ) % num, show_copy_button=False)
+                ) % num, show_copy_button=False, skip_dialog_name=skip_dialog_name)
 
     def view_folder(self, *args):
         rows = self.gui.current_view().selectionModel().selectedRows()
@@ -217,7 +217,7 @@ class ViewAction(InterfaceAction):
                     _('No book selected'))
             d.exec_()
             return
-        if not self._view_check(len(rows)):
+        if not self._view_check(len(rows), max_=10, skip_dialog_name='open-folder-many-check'):
             return
         for i, row in enumerate(rows):
             path = self.gui.library_view.model().db.abspath(row.row())
@@ -316,8 +316,15 @@ class ViewAction(InterfaceAction):
             return
 
         if self.gui.current_view() is self.gui.library_view:
-            ids = list(map(self.gui.library_view.model().id, rows))
-            self._view_calibre_books(ids)
+            ids = []
+            m = self.gui.library_view.model().id
+            for r in rows:
+                try:
+                    ids.append(m(r))
+                except Exception:
+                    pass
+            if ids:
+                self._view_calibre_books(ids)
         else:
             paths = self.gui.current_view().model().paths(rows)
             for path in paths:

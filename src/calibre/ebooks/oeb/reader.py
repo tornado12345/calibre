@@ -137,7 +137,11 @@ class OEBReader(object):
         from calibre.ebooks.metadata.opf2 import OPF
         from calibre.ebooks.oeb.transforms.metadata import meta_info_to_oeb_metadata
         stream = cStringIO.StringIO(etree.tostring(opf, xml_declaration=True, encoding='utf-8'))
-        mi = OPF(stream).to_book_metadata()
+        o = OPF(stream)
+        pwm = o.primary_writing_mode
+        if pwm:
+            self.oeb.metadata.primary_writing_mode = pwm
+        mi = o.to_book_metadata()
         if not mi.language:
             mi.language = get_lang().replace('_', '-')
         self.oeb.metadata.add('language', mi.language)
@@ -396,6 +400,8 @@ class OEBReader(object):
                 continue
             href = item.abshref(urlnormalize(href[0])) if href and href[0] else ''
             path, _ = urldefrag(href)
+            if path and path not in self.oeb.manifest.hrefs:
+                path = urlnormalize(path)
             if href and path not in self.oeb.manifest.hrefs:
                 self.logger.warn('TOC reference %r not found' % href)
                 gc = xpath(child, 'ncx:navPoint')

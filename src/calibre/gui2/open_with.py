@@ -63,6 +63,7 @@ def entry_to_icon_text(entry, only_text=False):
         icon = QIcon(pmap)
     return icon, entry.get('name', entry.get('Name')) or _('Unknown')
 
+
 if iswindows:
     # Windows {{{
     from calibre.utils.winreg.default_programs import find_programs, friendly_app_name
@@ -138,7 +139,7 @@ if iswindows:
     # }}}
 
 elif isosx:
-    # OS X {{{
+    # macOS {{{
     oprefs = JSONConfig('osx_open_with')
     from calibre.utils.open_with.osx import find_programs, get_icon, entry_to_cmdline, get_bundle_data
 
@@ -170,7 +171,7 @@ elif isosx:
                 app = get_bundle_data(ans)
                 if app is None:
                     return error_dialog(parent, _('Invalid Application'), _(
-                        '%s is not a valid OS X application bundle.') % ans, show=True)
+                        '%s is not a valid macOS application bundle.') % ans, show=True)
                 return app
             if not os.access(ans, os.X_OK):
                 error_dialog(parent, _('Cannot execute'), _(
@@ -217,7 +218,10 @@ else:
                 pmap = ic.pixmap(48, 48)
                 if not pmap.isNull():
                     entry['icon_data'] = pixmap_to_data(pmap)
-        entry['MimeType'] = tuple(entry['MimeType'])
+        try:
+            entry['MimeType'] = tuple(entry['MimeType'])
+        except KeyError:
+            entry['MimeType'] = ()
         return entry
 # }}}
 
@@ -300,6 +304,7 @@ class ChooseProgram(Dialog):  # {{{
         self.select_manually = True
         self.reject()
 
+
 oprefs.defaults['entries'] = {}
 
 
@@ -353,7 +358,7 @@ class EditPrograms(Dialog):  # {{{
         self.bb.clear(), self.bb.setStandardButtons(self.bb.Close)
         self.rb = b = self.bb.addButton(_('&Remove'), self.bb.ActionRole)
         b.clicked.connect(self.remove), b.setIcon(QIcon(I('list_remove.png')))
-        self.cb = b = self.bb.addButton(_('Change &Icon'), self.bb.ActionRole)
+        self.cb = b = self.bb.addButton(_('Change &icon'), self.bb.ActionRole)
         b.clicked.connect(self.change_icon), b.setIcon(QIcon(I('icon_choose.png')))
         l.addWidget(self.bb)
 
@@ -408,6 +413,7 @@ def edit_programs(file_type, parent):
     d.exec_()
 # }}}
 
+
 registered_shortcuts = {}
 
 
@@ -435,6 +441,7 @@ def register_keyboard_shortcuts(gui=None, finalize=False):
             registered_shortcuts[unique_name] = ac
     if finalize:
         gui.keyboard.finalize()
+
 
 if __name__ == '__main__':
     from pprint import pprint

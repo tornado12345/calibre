@@ -41,12 +41,15 @@ CALIBRE_NS   = 'http://calibre.kovidgoyal.net/2009/metadata'
 RE_NS        = 'http://exslt.org/regular-expressions'
 MBP_NS       = 'http://www.mobipocket.com'
 EPUB_NS      = 'http://www.idpf.org/2007/ops'
+MATHML_NS    = 'http://www.w3.org/1998/Math/MathML'
 
-XPNSMAP      = {'h': XHTML_NS, 'o1': OPF1_NS, 'o2': OPF2_NS,
-                'd09': DC09_NS, 'd10': DC10_NS, 'd11': DC11_NS,
-                'xsi': XSI_NS, 'dt': DCTERMS_NS, 'ncx': NCX_NS,
-                'svg': SVG_NS, 'xl': XLINK_NS, 're': RE_NS,
-                'mbp': MBP_NS, 'calibre': CALIBRE_NS, 'epub':EPUB_NS}
+XPNSMAP      = {
+        'h': XHTML_NS, 'o1': OPF1_NS, 'o2': OPF2_NS, 'd09': DC09_NS,
+        'd10': DC10_NS, 'd11': DC11_NS, 'xsi': XSI_NS, 'dt': DCTERMS_NS,
+        'ncx': NCX_NS, 'svg': SVG_NS, 'xl': XLINK_NS, 're': RE_NS,
+        'mathml': MATHML_NS, 'mbp': MBP_NS, 'calibre': CALIBRE_NS,
+        'epub':EPUB_NS
+}
 
 OPF1_NSMAP   = {'dc': DC11_NS, 'oebpackage': OPF1_NS}
 OPF2_NSMAP   = {'opf': OPF2_NS, 'dc': DC11_NS, 'dcterms': DCTERMS_NS,
@@ -782,6 +785,7 @@ class Metadata(object):
     def __init__(self, oeb):
         self.oeb = oeb
         self.items = defaultdict(list)
+        self.primary_writing_mode = None
 
     def add(self, term, value, attrib={}, nsmap={}, **kwargs):
         """Add a new metadata item."""
@@ -864,6 +868,8 @@ class Metadata(object):
         for term in self.items:
             for item in self.items[term]:
                 item.to_opf2(elem, nsrmap=nsrmap)
+        if self.primary_writing_mode:
+            elem.append(elem.makeelement(OPF('meta'), attrib={'name':'primary-writing-mode', 'content':self.primary_writing_mode}))
         return elem
 
 
@@ -1365,7 +1371,7 @@ class Guide(object):
             a fragment identifier.
         """
         _TYPES_TITLES = [('cover', __('Cover')),
-                         ('title-page', __('Title Page')),
+                         ('title-page', __('Title page')),
                          ('toc', __('Table of Contents')),
                          ('index', __('Index')),
                          ('glossary', __('Glossary')),
@@ -1376,11 +1382,11 @@ class Guide(object):
                          ('dedication', __('Dedication')),
                          ('epigraph', __('Epigraph')),
                          ('foreword', __('Foreword')),
-                         ('loi', __('List of Illustrations')),
-                         ('lot', __('List of Tables')),
+                         ('loi', __('List of illustrations')),
+                         ('lot', __('List of tables')),
                          ('notes', __('Notes')),
                          ('preface', __('Preface')),
-                         ('text', __('Main Text'))]
+                         ('text', __('Main text'))]
         TYPES = set(t for t, _ in _TYPES_TITLES)  # noqa
         TITLES = dict(_TYPES_TITLES)
         ORDER = dict((t, i) for i, (t, _) in enumerate(_TYPES_TITLES))  # noqa
@@ -1457,6 +1463,9 @@ class Guide(object):
 
     def __getitem__(self, key):
         return self.refs[key]
+
+    def get(self, key):
+        return self.refs.get(key)
 
     def __delitem__(self, key):
         del self.refs[key]

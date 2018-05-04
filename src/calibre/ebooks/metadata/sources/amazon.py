@@ -15,7 +15,6 @@ from calibre import as_unicode, browser, random_user_agent
 from calibre.ebooks.metadata import check_isbn
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.ebooks.metadata.sources.base import Option, Source, fixauthors, fixcase
-from calibre.ebooks.metadata.sources.update import search_engines_module
 from calibre.utils.localization import canonicalize_lang
 from calibre.utils.random_ua import accept_header_for_ua, all_user_agents
 
@@ -31,10 +30,20 @@ class SearchFailed(ValueError):
 ua_index = -1
 
 
+def parse_html(raw):
+    try:
+        from html5_parser import parse
+    except ImportError:
+        # Old versions of calibre
+        import html5lib
+        return html5lib.parse(raw, treebuilder='lxml', namespaceHTMLElements=False)
+    else:
+        return parse(raw)
+
+
 def parse_details_page(url, log, timeout, browser, domain):
     from calibre.utils.cleantext import clean_ascii_chars
     from calibre.ebooks.chardet import xml_to_unicode
-    import html5lib
     from lxml.html import tostring
     log('Getting details from:', url)
     try:
@@ -61,13 +70,13 @@ def parse_details_page(url, log, timeout, browser, domain):
     raw = xml_to_unicode(raw, strip_encoding_pats=True,
                          resolve_entities=True)[0]
     if '<title>404 - ' in raw:
-        log.error('URL malformed: %r' % url)
-        return
+        raise ValueError('URL malformed: %r' % url)
+    if '>Could not find the requested document in the cache.<' in raw:
+        raise ValueError('No cached entry for %s found' % url)
 
     try:
-        root = html5lib.parse(clean_ascii_chars(raw), treebuilder='lxml',
-                              namespaceHTMLElements=False)
-    except:
+        root = parse_html(clean_ascii_chars(raw))
+    except Exception:
         msg = 'Failed to parse amazon details page: %r' % url
         log.exception(msg)
         return
@@ -477,12 +486,16 @@ class Worker(Thread):  # Get details {{{
         return ans
 
     def parse_authors(self, root):
-        matches = tuple(self.selector('#byline .author .contributorNameID'))
-        if not matches:
-            matches = tuple(self.selector('#byline .author a.a-link-normal'))
-        if matches:
-            authors = [self.totext(x) for x in matches]
-            return [a for a in authors if a]
+        for sel in (
+                '#byline .author .contributorNameID',
+                '#byline .author a.a-link-normal',
+                '#bylineInfo .author .contributorNameID',
+                '#bylineInfo .author a.a-link-normal'
+        ):
+            matches = tuple(self.selector(sel))
+            if matches:
+                authors = [self.totext(x) for x in matches]
+                return [a for a in authors if a]
 
         x = '//h1[contains(@class, "parseasinTitle")]/following-sibling::span/*[(name()="a" and @href) or (name()="span" and @class="contributorNameTrigger")]'
         aname = root.xpath(x)
@@ -589,8 +602,7 @@ class Worker(Thread):  # Get details {{{
             if m is not None:
                 try:
                     text = unquote(m.group(1)).decode('utf-8')
-                    nr = html5lib.parse(
-                        text, treebuilder='lxml', namespaceHTMLElements=False)
+                    nr = parse_html(text)
                     desc = nr.xpath(
                         '//div[@id="productDescription"]/*[@class="content"]')
                     if desc:
@@ -827,7 +839,7 @@ class Worker(Thread):  # Get details {{{
 class Amazon(Source):
 
     name = 'Amazon.com'
-    version = (1, 2, 0)
+    version = (1, 2, 2)
     minimum_calibre_version = (2, 82, 0)
     description = _('Downloads metadata and covers from Amazon')
 
@@ -1201,7 +1213,6 @@ class Amazon(Source):
     # }}}
 
     def search_amazon(self, br, testing, log, abort, title, authors, identifiers, timeout):  # {{{
-        import html5lib
         from calibre.utils.cleantext import clean_ascii_chars
         from calibre.ebooks.chardet import xml_to_unicode
         matches = []
@@ -1242,8 +1253,7 @@ class Amazon(Source):
 
         if found:
             try:
-                root = html5lib.parse(raw, treebuilder='lxml',
-                                      namespaceHTMLElements=False)
+                root = parse_html(raw)
             except Exception:
                 msg = 'Failed to parse amazon page for query: %r' % query
                 log.exception(msg)
@@ -1254,17 +1264,18 @@ class Amazon(Source):
         return matches, query, domain, None
     # }}}
 
-    def search_search_engine(self, br, testing, log, abort, title, authors, identifiers, timeout):  # {{{
+    def search_search_engine(self, br, testing, log, abort, title, authors, identifiers, timeout, override_server=None):  # {{{
+        from calibre.ebooks.metadata.sources.update import search_engines_module
         terms, domain = self.create_query(log, title=title, authors=authors,
                                           identifiers=identifiers, for_amazon=False)
         site = self.referrer_for_domain(
             domain)[len('https://'):].partition('/')[0]
         matches = []
         se = search_engines_module()
-        server = self.server
-        if server in ('auto', 'bing'):
+        server = override_server or self.server
+        if server in ('bing',):
             urlproc, sfunc = se.bing_url_processor, se.bing_search
-        elif server == 'google':
+        elif server in ('auto', 'google'):
             urlproc, sfunc = se.google_url_processor, se.google_search
         elif server == 'wayback':
             urlproc, sfunc = se.wayback_url_processor, se.ddg_search
@@ -1291,6 +1302,10 @@ class Amazon(Source):
                 log('Skipping non-book result:', result)
         if not matches:
             log('No search engine results for terms:', ' '.join(terms))
+            if urlproc is se.google_url_processor:
+                # Google does not cache adult titles
+                log('Trying the bing search engine instead')
+                return self.search_search_engine(br, testing, log, abort, title, authors, identifiers, timeout, 'bing')
         return matches, terms, domain, urlproc
     # }}}
 
@@ -1306,6 +1321,7 @@ class Amazon(Source):
         udata = self._get_book_url(identifiers)
         br = self.browser
         log('User-agent:', br.current_user_agent())
+        log('Server:', self.server)
         if testing:
             print('User-agent:', br.current_user_agent())
         if udata is not None and not self.use_search_engine:
@@ -1485,12 +1501,6 @@ if __name__ == '__main__':  # tests {{{
              ]
         ),
 
-        (  # Sophisticated comment formatting
-            {'identifiers': {'isbn': '9781416580829'}},
-            [title_test('Angels & Demons - Movie Tie-In: A Novel',
-                        exact=True), authors_test(['Dan Brown'])]
-        ),
-
         (  # No specific problems
             {'identifiers': {'isbn': '0743273567'}},
             [title_test('The great gatsby', exact=True),
@@ -1635,5 +1645,4 @@ if __name__ == '__main__':  # tests {{{
 
     do_test('com')
     # do_test('de')
-
 # }}}

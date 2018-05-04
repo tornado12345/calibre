@@ -50,7 +50,7 @@
  * causing <https://bugs.launchpad.net/bzr/+bug/511267> and
  * <https://bugs.launchpad.net/bzr/+bug/331095>.  On glibc it passes, but
  * let's make it fail to aid testing. */
-#define guarded_malloc(x) ( (x) ? malloc(x) : NULL )
+static inline void* guarded_malloc(size_t x) { return x ? malloc(x) : NULL; }
 
 enum {
     OP_EQUAL = 0,
@@ -1258,7 +1258,7 @@ static PyMethodDef cpatiencediff_methods[] = {
 };
 
 
-PyMODINIT_FUNC
+CALIBRE_MODINIT_FUNC
 init_patiencediff_c(void)
 {
     PyObject* m;

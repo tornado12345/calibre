@@ -5,7 +5,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import errno
+import errno, os
 from functools import partial
 from collections import Counter
 
@@ -73,13 +73,12 @@ class MultiDeleter(QObject):  # {{{
         self.pd = None
         self.model.db.commit()
         self.model.db.clean()
-        self.model.books_deleted()
-        self.gui.tags_view.recount()
+        self.model.books_deleted()  # calls recount on the tag browser
         self.callback(self.deleted_ids)
         if self.failures:
             msg = ['==> '+x[1]+'\n'+x[2] for x in self.failures]
             error_dialog(self.gui, _('Failed to delete'),
-                    _('Failed to delete some books, click the Show Details button'
+                    _('Failed to delete some books, click the "Show details" button'
                     ' for details.'), det_msg='\n\n'.join(msg), show=True)
 # }}}
 
@@ -182,14 +181,14 @@ class DeleteAction(InterfaceAction):
         self.gui.library_view.model().refresh_ids([book_id])
         self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
                 self.gui.library_view.currentIndex())
-        self.gui.tags_view.recount()
+        self.gui.tags_view.recount_with_position_based_index()
 
     def restore_format(self, book_id, original_fmt):
         self.gui.current_db.restore_original_format(book_id, original_fmt)
         self.gui.library_view.model().refresh_ids([book_id])
         self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
                 self.gui.library_view.currentIndex())
-        self.gui.tags_view.recount()
+        self.gui.tags_view.recount_with_position_based_index()
 
     def delete_selected_formats(self, *args):
         ids = self._get_selected_ids()
@@ -205,7 +204,7 @@ class DeleteAction(InterfaceAction):
         m.current_changed(self.gui.library_view.currentIndex(),
                 self.gui.library_view.currentIndex())
         if ids:
-            self.gui.tags_view.recount()
+            self.gui.tags_view.recount_with_position_based_index()
 
     def delete_all_but_selected_formats(self, *args):
         ids = self._get_selected_ids()
@@ -235,7 +234,7 @@ class DeleteAction(InterfaceAction):
             m.current_changed(self.gui.library_view.currentIndex(),
                     self.gui.library_view.currentIndex())
             if ids:
-                self.gui.tags_view.recount()
+                self.gui.tags_view.recount_with_position_based_index()
 
     def delete_all_formats(self, *args):
         ids = self._get_selected_ids()
@@ -258,7 +257,7 @@ class DeleteAction(InterfaceAction):
             self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
                     self.gui.library_view.currentIndex())
             if ids:
-                self.gui.tags_view.recount()
+                self.gui.tags_view.recount_with_position_based_index()
 
     def remove_matching_books_from_device(self, *args):
         if not self.gui.device_manager.is_device_present:
@@ -379,12 +378,12 @@ class DeleteAction(InterfaceAction):
             except IOError as err:
                 if err.errno == errno.EACCES:
                     import traceback
-                    fname = getattr(err, 'filename', 'file') or 'file'
+                    fname = os.path.basename(getattr(err, 'filename', 'file') or 'file')
                     return error_dialog(self.gui, _('Permission denied'),
                             _('Could not access %s. Is it being used by another'
                             ' program? Click "Show details" for more information.')%fname, det_msg=traceback.format_exc(),
                             show=True)
-
+                raise
             self.library_ids_deleted2(to_delete_ids, next_id=next_id)
         else:
             self.__md = MultiDeleter(self.gui, to_delete_ids,

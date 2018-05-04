@@ -108,6 +108,7 @@ class FormatterFunctions(object):
             for a in c.aliases:
                 self._functions[a] = c
 
+
 _ff = FormatterFunctions()
 
 
@@ -524,43 +525,65 @@ class BuiltinStrcatMax(BuiltinFormatterFunction):
 
 class BuiltinInList(BuiltinFormatterFunction):
     name = 'in_list'
-    arg_count = 5
+    arg_count = -1
     category = 'List lookup'
-    __doc__ = doc = _('in_list(val, separator, pattern, found_val, not_found_val) -- '
+    __doc__ = doc = _('in_list(val, separator, pattern, found_val, ..., not_found_val) -- '
             'treat val as a list of items separated by separator, '
-            'comparing the pattern against each value in the list. If the '
+            'evaluating the pattern against each value in the list. If the '
             'pattern matches a value, return found_val, otherwise return '
-            'not_found_val.')
+            'not_found_val. The pattern and found_value can be repeated as '
+            'many times as desired, permitting returning different values '
+            'depending on the search. The patterns are checked in order. The '
+            'first match is returned.')
 
-    def evaluate(self, formatter, kwargs, mi, locals, val, sep, pat, fv, nfv):
+    def evaluate(self, formatter, kwargs, mi, locals, val, sep, *args):
+        if (len(args) % 2) != 1:
+            raise ValueError(_('in_list requires an odd number of arguments'))
         l = [v.strip() for v in val.split(sep) if v.strip()]
-        if l:
-            for v in l:
-                if re.search(pat, v, flags=re.I):
-                    return fv
-        return nfv
+        i = 0
+        while i < len(args):
+            if i + 1 >= len(args):
+                return args[i]
+            sf = args[i]
+            fv = args[i+1]
+            if l:
+                for v in l:
+                    if re.search(sf, v, flags=re.I):
+                        return fv
+            i += 2
 
 
 class BuiltinStrInList(BuiltinFormatterFunction):
     name = 'str_in_list'
-    arg_count = 5
+    arg_count = -1
     category = 'List lookup'
-    __doc__ = doc = _('str_in_list(val, separator, string, found_val, not_found_val) -- '
+    __doc__ = doc = _('str_in_list(val, separator, string, found_val, ..., not_found_val) -- '
             'treat val as a list of items separated by separator, '
             'comparing the string against each value in the list. If the '
-            'string matches a value, return found_val, otherwise return '
+            'string matches a value (ignoring case) then return found_val, otherwise return '
             'not_found_val. If the string contains separators, then it is '
-            'also treated as a list and each value is checked.')
+            'also treated as a list and each value is checked. The string and '
+            'found_value can be repeated as many times as desired, permitting '
+            'returning different values depending on the search. The strings are '
+            'checked in order. The first match is returned.')
 
-    def evaluate(self, formatter, kwargs, mi, locals, val, sep, str, fv, nfv):
+    def evaluate(self, formatter, kwargs, mi, locals, val, sep, *args):
+        if (len(args) % 2) != 1:
+            raise ValueError(_('str_in_list requires an odd number of arguments'))
         l = [v.strip() for v in val.split(sep) if v.strip()]
-        c = [v.strip() for v in str.split(sep) if v.strip()]
-        if l:
-            for v in l:
-                for t in c:
-                    if strcmp(t, v) == 0:
-                        return fv
-        return nfv
+        i = 0
+        while i < len(args):
+            if i + 1 >= len(args):
+                return args[i]
+            sf = args[i]
+            fv = args[i+1]
+            c = [v.strip() for v in sf.split(sep) if v.strip()]
+            if l:
+                for v in l:
+                    for t in c:
+                        if strcmp(t, v) == 0:
+                            return fv
+            i += 2
 
 
 class BuiltinIdentifierInList(BuiltinFormatterFunction):
@@ -597,7 +620,7 @@ class BuiltinRe(BuiltinFormatterFunction):
     __doc__ = doc = _('re(val, pattern, replacement) -- return val after applying '
             'the regular expression. All instances of `pattern` are replaced '
             'with `replacement`. As in all of calibre, these are '
-            'python-compatible regular expressions')
+            'Python-compatible regular expressions')
 
     def evaluate(self, formatter, kwargs, mi, locals, val, pattern, replacement):
         return re.sub(pattern, replacement, val, flags=re.I)
@@ -790,9 +813,12 @@ class BuiltinFormatsModtimes(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals, fmt):
         fmt_data = mi.get('format_metadata', {})
-        data = sorted(fmt_data.items(), key=lambda x:x[1]['mtime'], reverse=True)
-        return ','.join(k.upper()+':'+format_date(v['mtime'], fmt)
+        try:
+            data = sorted(fmt_data.items(), key=lambda x:x[1]['mtime'], reverse=True)
+            return ','.join(k.upper()+':'+format_date(v['mtime'], fmt)
                         for k,v in data)
+        except:
+            return ''
 
 
 class BuiltinFormatsSizes(BuiltinFormatterFunction):
@@ -809,7 +835,10 @@ class BuiltinFormatsSizes(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals):
         fmt_data = mi.get('format_metadata', {})
-        return ','.join(k.upper()+':'+str(v['size']) for k,v in fmt_data.iteritems())
+        try:
+            return ','.join(k.upper()+':'+str(v['size']) for k,v in fmt_data.iteritems())
+        except:
+            return ''
 
 
 class BuiltinFormatsPaths(BuiltinFormatterFunction):
@@ -825,7 +854,10 @@ class BuiltinFormatsPaths(BuiltinFormatterFunction):
 
     def evaluate(self, formatter, kwargs, mi, locals):
         fmt_data = mi.get('format_metadata', {})
-        return ','.join(k.upper()+':'+str(v['path']) for k,v in fmt_data.iteritems())
+        try:
+            return ','.join(k.upper()+':'+str(v['path']) for k,v in fmt_data.iteritems())
+        except:
+            return ''
 
 
 class BuiltinHumanReadable(BuiltinFormatterFunction):
@@ -848,16 +880,20 @@ class BuiltinFormatNumber(BuiltinFormatterFunction):
     arg_count = 2
     category = 'Formatting values'
     __doc__ = doc = _('format_number(v, template) -- format the number v using '
-                  'a python formatting template such as "{0:5.2f}" or '
+                  'a Python formatting template such as "{0:5.2f}" or '
                   '"{0:,d}" or "${0:5,.2f}". The field_name part of the '
                   'template must be a 0 (zero) (the "{0:" in the above examples). '
-                  'See the template language and python documentation for more '
-                  'examples. Returns the empty string if formatting fails.'
+                  'See the template language and Python documentation for more '
+                  'examples. You can leave off the leading "{0:" and trailing '
+                  '"}" if the template contains only a format. Returns the empty '
+                  'string if formatting fails.'
             )
 
     def evaluate(self, formatter, kwargs, mi, locals, val, template):
         if val == '' or val == 'None':
             return ''
+        if '{' not in template:
+            template = '{0:' + template + '}'
         try:
             v1 = float(val)
         except:
@@ -1564,6 +1600,7 @@ class BuiltinAuthorSorts(BuiltinFormatterFunction):
         names = [sort_data.get(n) for n in mi.authors if n.strip()]
         return val_sep.join(n for n in names)
 
+
 _formatter_builtins = [
     BuiltinAdd(), BuiltinAnd(), BuiltinApproximateFormats(), BuiltinAssign(),
     BuiltinAuthorLinks(), BuiltinAuthorSorts(), BuiltinBooksize(),
@@ -1598,6 +1635,7 @@ class FormatterUserFunction(FormatterFunction):
         self.arg_count = arg_count
         self.program_text = program_text
 
+
 tabs = re.compile(r'^\t*')
 
 
@@ -1620,10 +1658,8 @@ class UserFunction(FormatterUserFunction):
     return cls
 
 
-def load_user_template_functions(library_uuid, funcs):
-    unload_user_template_functions(library_uuid)
-
-    compiled_funcs = []
+def compile_user_template_functions(funcs):
+    compiled_funcs = {}
     for func in funcs:
         try:
             # Force a name conflict to test the logic
@@ -1634,10 +1670,20 @@ def load_user_template_functions(library_uuid, funcs):
             # source. This helps ensure that if the function already is defined
             # then white space differences don't cause them to compare differently
 
-            compiled_funcs.append(compile_user_function(*func))
+            cls = compile_user_function(*func)
+            compiled_funcs[cls.name] = cls
         except:
             traceback.print_exc()
-    formatter_functions().register_functions(library_uuid, compiled_funcs)
+    return compiled_funcs
+
+
+def load_user_template_functions(library_uuid, funcs, precompiled_user_functions=None):
+    unload_user_template_functions(library_uuid)
+    if precompiled_user_functions:
+        compiled_funcs = precompiled_user_functions
+    else:
+        compiled_funcs = compile_user_template_functions(funcs)
+    formatter_functions().register_functions(library_uuid, compiled_funcs.values())
 
 
 def unload_user_template_functions(library_uuid):

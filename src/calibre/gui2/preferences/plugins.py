@@ -325,7 +325,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             self.check_for_add_to_toolbars(plugin, previously_installed=plugin.name in installed_plugins)
             info_dialog(self, _('Success'),
                     _('Plugin <b>{0}</b> successfully installed under <b>'
-                        ' {1} plugins</b>. You may have to restart calibre '
+                        '{1} plugins</b>. You may have to restart calibre '
                         'for the plugin to take effect.').format(plugin.name, plugin.type),
                     show=True, show_copy_button=False)
             idx = self._plugin_model.plugin_to_index_by_properties(plugin)
@@ -377,7 +377,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                     'confirm_plugin_removal_msg', parent=self):
                     return
 
-                msg = _('Plugin <b>{0}</b> successfully removed').format(plugin.name)
+                msg = _('Plugin <b>{0}</b> successfully removed. You will have'
+                        ' to restart calibre for it to be completely removed.').format(plugin.name)
                 if remove_plugin(plugin):
                     self._plugin_model.beginResetModel()
                     self._plugin_model.populate()
@@ -432,6 +433,9 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             (key, list(gprefs.get('action-layout-'+key, [])))
             for key in all_locations])
 
+        # If this is an update, do nothing
+        if previously_installed:
+            return
         # If already installed in a GUI container, do nothing
         for action_names in installed_actions.itervalues():
             if plugin_action.name in action_names:
@@ -456,9 +460,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             from calibre.gui2.tweak_book.plugin import install_plugin
             install_plugin(plugin)
 
+
 if __name__ == '__main__':
     from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Advanced', 'Plugins')
-
-

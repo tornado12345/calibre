@@ -52,6 +52,13 @@ def qhash(inputstr):
     return h
 
 
+def any_in(haystack, *needles):
+    for n in needles:
+        if n in haystack:
+            return True
+    return False
+
+
 class DummyCSSPreProcessor(object):
 
     def __call__(self, data, add_namespace=False):
@@ -69,7 +76,7 @@ class KOBO(USBMS):
 
     dbversion = 0
     fwversion = (0,0,0)
-    supported_dbversion = 129
+    supported_dbversion = 146
     has_kepubs = False
 
     supported_platforms = ['windows', 'osx', 'linux']
@@ -98,33 +105,33 @@ class KOBO(USBMS):
     VIRTUAL_BOOK_EXTENSIONS = frozenset(['kobo', ''])
 
     EXTRA_CUSTOMIZATION_MESSAGE = [
-        _('The Kobo supports several collections including ')+ 'Read, Closed, Im_Reading. ' +
-        _('Create tags for automatic management'),
-        _('Upload covers for books (newer readers)') +
-        ':::'+_('Normally, the KOBO readers get the cover image from the'
-                ' ebook file itself. With this option, calibre will send a '
-                'separate cover image to the reader, useful if you '
-                'have modified the cover.'),
-        _('Upload Black and White Covers'),
-        _('Show expired books') +
-        ':::'+_('A bug in an earlier version left non kepubs book records'
-                ' in the database.  With this option calibre will show the '
-                'expired records and allow you to delete them with '
-                'the new delete logic.'),
-        _('Show Previews') +
-        ':::'+_('Kobo previews are included on the Touch and some other versions'
-                ' by default they are no longer displayed as there is no good reason to '
-                'see them.  Enable if you wish to see/delete them.'),
-        _('Show Recommendations') +
-        ':::'+_('Kobo now shows recommendations on the device. In some cases these have '
-                'files but in other cases they are just pointers to the web site to buy. '
-                'Enable if you wish to see/delete them.'),
-        _('Attempt to support newer firmware') +
-        ':::'+_('Kobo routinely updates the firmware and the '
-                'database version. With this option calibre will attempt '
-                'to perform full read-write functionality - Here be Dragons!! '
-                'Enable only if you are comfortable with restoring your kobo '
-                'to factory defaults and testing software'),
+        _('The Kobo supports several collections including ')+ 'Read, Closed, Im_Reading. ' + _(
+            'Create tags for automatic management'),
+        _('Upload covers for books (newer readers)') + ':::'+_(
+            'Normally, the Kobo readers get the cover image from the'
+            ' e-book file itself. With this option, calibre will send a '
+            'separate cover image to the reader, useful if you '
+            'have modified the cover.'),
+        _('Upload black and white covers'),
+        _('Show expired books') + ':::'+_(
+            'A bug in an earlier version left non kepubs book records'
+            ' in the database.  With this option calibre will show the '
+            'expired records and allow you to delete them with '
+            'the new delete logic.'),
+        _('Show Previews') + ':::'+_(
+            'Kobo previews are included on the Touch and some other versions'
+            ' by default they are no longer displayed as there is no good reason to '
+            'see them.  Enable if you wish to see/delete them.'),
+        _('Show Recommendations') + ':::'+_(
+            'Kobo now shows recommendations on the device. In some cases these have '
+            'files but in other cases they are just pointers to the web site to buy. '
+            'Enable if you wish to see/delete them.'),
+        _('Attempt to support newer firmware') + ':::'+_(
+            'Kobo routinely updates the firmware and the '
+            'database version. With this option calibre will attempt '
+            'to perform full read-write functionality - Here be Dragons!! '
+            'Enable only if you are comfortable with restoring your kobo '
+            'to factory defaults and testing software'),
     ]
 
     EXTRA_CUSTOMIZATION_DEFAULT = [
@@ -353,8 +360,7 @@ class KOBO(USBMS):
                 cursor.execute(query)
             except Exception as e:
                 err = str(e)
-                if not ('___ExpirationStatus' in err or 'FavouritesIndex' in err or
-                        'Accessibility' in err or 'IsDownloaded' in err):
+                if not (any_in(err, '___ExpirationStatus', 'FavouritesIndex', 'Accessibility', 'IsDownloaded')):
                     raise
                 query= ('select Title, Attribution, DateCreated, ContentID, MimeType, ContentType, '
                     'ImageID, ReadStatus, "-1" as ___ExpirationStatus, "-1" as '
@@ -764,20 +770,23 @@ class KOBO(USBMS):
     def set_readstatus(self, connection, ContentID, ReadStatus):
         cursor = connection.cursor()
         t = (ContentID,)
-        cursor.execute('select DateLastRead from Content where BookID is Null and ContentID = ?', t)
+        cursor.execute('select DateLastRead, ReadStatus  from Content where BookID is Null and ContentID = ?', t)
         try:
             result = cursor.next()
             datelastread = result[0] if result[0] is not None else '1970-01-01T00:00:00'
+            current_ReadStatus = result[1]
         except StopIteration:
             datelastread = '1970-01-01T00:00:00'
+            current_ReadStatus = 0
 
-        t = (ReadStatus,datelastread,ContentID,)
+        if not ReadStatus == current_ReadStatus:
+            t = (ReadStatus, datelastread, ContentID,)
 
-        try:
-            cursor.execute('update content set ReadStatus=?,FirstTimeReading=\'false\',DateLastRead=? where BookID is Null and ContentID = ?', t)
-        except:
-            debug_print('    Database Exception:  Unable update ReadStatus')
-            raise
+            try:
+                cursor.execute('update content set ReadStatus=?,FirstTimeReading=\'false\',DateLastRead=? where BookID is Null and ContentID = ?', t)
+            except:
+                debug_print('    Database Exception: Unable to update ReadStatus')
+                raise
 
         cursor.close()
 
@@ -1193,13 +1202,13 @@ class KOBO(USBMS):
         spanTag['style'] = 'font-weight:normal'
         if bookmark.book_format == 'epub':
             spanTag.insert(0,NavigableString(
-                _("<hr /><b>Book Last Read:</b> %(time)s<br /><b>Percentage Read:</b> %(pr)d%%<hr />") % dict(
+                _("<hr /><b>Book last read:</b> %(time)s<br /><b>Percentage read:</b> %(pr)d%%<hr />") % dict(
                     time=last_read,
                     # loc=last_read_location,
                     pr=percent_read)))
         else:
             spanTag.insert(0,NavigableString(
-                _("<hr /><b>Book Last Read:</b> %(time)s<br /><b>Percentage Read:</b> %(pr)d%%<hr />") % dict(
+                _("<hr /><b>Book last read:</b> %(time)s<br /><b>Percentage read:</b> %(pr)d%%<hr />") % dict(
                     time=last_read,
                     # loc=last_read_location,
                     pr=percent_read)))
@@ -1228,7 +1237,7 @@ class KOBO(USBMS):
                 elif user_notes[location]['type'] == 'Highlight':
                     annotations.append(
                         _('<b>Chapter %(chapter)d:</b> %(chapter_title)s<br /><b>%(typ)s</b><br />'
-                          '<b>Chapter Progress:</b> %(chapter_progress)s%%<br /><b>Highlight:</b> %(text)s<br /><hr />') % dict(
+                          '<b>Chapter progress:</b> %(chapter_progress)s%%<br /><b>Highlight:</b> %(text)s<br /><hr />') % dict(
                               chapter=user_notes[location]['chapter'],
                               dl=user_notes[location]['displayed_location'],
                               typ=user_notes[location]['type'],
@@ -1238,7 +1247,7 @@ class KOBO(USBMS):
                 elif user_notes[location]['type'] == 'Annotation':
                     annotations.append(
                         _('<b>Chapter %(chapter)d:</b> %(chapter_title)s<br />'
-                          '<b>%(typ)s</b><br /><b>Chapter Progress:</b> %(chapter_progress)s%%<br /><b>Highlight:</b> %(text)s<br />'
+                          '<b>%(typ)s</b><br /><b>Chapter progress:</b> %(chapter_progress)s%%<br /><b>Highlight:</b> %(text)s<br />'
                           '<b>Notes:</b> %(annotation)s<br /><hr />') % dict(
                               chapter=user_notes[location]['chapter'],
                               dl=user_notes[location]['displayed_location'],
@@ -1250,7 +1259,7 @@ class KOBO(USBMS):
                 else:
                     annotations.append(
                         _('<b>Chapter %(chapter)d:</b> %(chapter_title)s<br />'
-                          '<b>%(typ)s</b><br /><b>Chapter Progress:</b> %(chapter_progress)s%%<br /><b>Highlight:</b> %(text)s<br />'
+                          '<b>%(typ)s</b><br /><b>Chapter progress:</b> %(chapter_progress)s%%<br /><b>Highlight:</b> %(text)s<br />'
                           '<b>Notes:</b> %(annotation)s<br /><hr />') % dict(
                               chapter=user_notes[location]['chapter'],
                               dl=user_notes[location]['displayed_location'],
@@ -1313,7 +1322,7 @@ class KOBOTOUCH(KOBO):
                     ' Based on the existing Kobo driver by %s.') % KOBO.author
 #    icon        = I('devices/kobotouch.jpg')
 
-    supported_dbversion             = 137
+    supported_dbversion             = 146
     min_supported_dbversion         = 53
     min_dbversion_series            = 65
     min_dbversion_externalid        = 65
@@ -1325,7 +1334,7 @@ class KOBOTOUCH(KOBO):
     # Starting with firmware version 3.19.x, the last number appears to be is a
     # build number. A number will be recorded here but it can be safely ignored
     # when testing the firmware version.
-    max_supported_fwversion         = (4, 3, 8945)
+    max_supported_fwversion         = (4, 8, 10956)
     # The following document firwmare versions where new function or devices were added.
     # Not all are used, but this feels a good place to record it.
     min_fwversion_shelves           = (2, 0, 0)
@@ -1334,8 +1343,9 @@ class KOBOTOUCH(KOBO):
     min_aurah2o_fwversion           = (3, 7, 0)
     min_reviews_fwversion           = (3, 12, 0)
     min_glohd_fwversion             = (3, 14, 0)
-    min_auraone_fwversion           = (3, 20, 7280)
-    min_fwversion_overdrive         = (4,  0, 7523)
+    min_auraone_fwversion           = (3, 20,  7280)
+    # min_clarahd_fwversion           = (4,  8, 10956) # It is coming, this is probably the firmware, but I don't have any ids for it.
+    min_fwversion_overdrive         = (4,  0,  7523)
 
     has_kepubs = True
 
@@ -1345,10 +1355,10 @@ class KOBOTOUCH(KOBO):
     MAX_PATH_LEN = 185  # 250 - (len(" - N3_LIBRARY_SHELF.parsed") + len("F:\.kobo\images\"))
     KOBO_EXTRA_CSSFILE = 'kobo_extra.css'
 
-    EXTRA_CUSTOMIZATION_MESSAGE = [
-                                   ]
-    EXTRA_CUSTOMIZATION_DEFAULT = [
-                                   ]
+    EXTRA_CUSTOMIZATION_MESSAGE = []
+    EXTRA_CUSTOMIZATION_DEFAULT = []
+
+    OSX_MAIN_MEM_VOL_PAT = re.compile(r'/KOBOeReader')
 
     opts = None
 
@@ -1358,18 +1368,20 @@ class KOBOTOUCH(KOBO):
     AURA_EDITION2_PRODUCT_ID    = [0x4226]
     AURA_HD_PRODUCT_ID  = [0x4193]
     AURA_H2O_PRODUCT_ID = [0x4213]
+    AURA_H2O_EDITION2_PRODUCT_ID = [0x4227]
     AURA_ONE_PRODUCT_ID = [0x4225]
     GLO_PRODUCT_ID      = [0x4173]
     GLO_HD_PRODUCT_ID   = [0x4223]
     MINI_PRODUCT_ID     = [0x4183]
     TOUCH_PRODUCT_ID    = [0x4163]
     TOUCH2_PRODUCT_ID   = [0x4224]
-    PRODUCT_ID          = AURA_PRODUCT_ID + AURA_HD_PRODUCT_ID + AURA_H2O_PRODUCT_ID + \
+    PRODUCT_ID          = AURA_PRODUCT_ID + AURA_EDITION2_PRODUCT_ID + \
+                          AURA_HD_PRODUCT_ID + AURA_H2O_PRODUCT_ID + AURA_H2O_EDITION2_PRODUCT_ID + \
                           GLO_PRODUCT_ID + GLO_HD_PRODUCT_ID + \
                           MINI_PRODUCT_ID + TOUCH_PRODUCT_ID + TOUCH2_PRODUCT_ID + \
-                          AURA_ONE_PRODUCT_ID + AURA_EDITION2_PRODUCT_ID
+                          AURA_ONE_PRODUCT_ID
 
-    BCD = [0x0110, 0x0326]
+    BCD = [0x0110, 0x0326, 0x401]
 
     # Image file name endings. Made up of: image size, min_dbversion, max_dbversion, isFullSize,
     # Note: "200" has been used just as a much larger number than the current versions. It is just a lazy
@@ -1446,6 +1458,58 @@ class KOBOTOUCH(KOBO):
     def get_device_information(self, end_session=True):
         self.set_device_name()
         return super(KOBOTOUCH, self).get_device_information(end_session)
+
+    def open_linux(self):
+        super(KOBOTOUCH, self).open_linux()
+
+        self.swap_drives_if_needed()
+
+    def open_osx(self):
+        # Just dump some info to the logs.
+        super(KOBOTOUCH, self).open_osx()
+
+        # Wrap some debugging output in a try/except so that it unlikely to break things completely.
+        try:
+            if DEBUG:
+                from calibre.constants import plugins
+                usbobserver, usbobserver_err = plugins['usbobserver']
+                mount_map = usbobserver.get_mounted_filesystems()
+                debug_print('KoboTouch::open_osx - mount_map=', mount_map)
+                debug_print('KoboTouch::open_osx - self._main_prefix=', self._main_prefix)
+                debug_print('KoboTouch::open_osx - self._card_a_prefix=', self._card_a_prefix)
+                debug_print('KoboTouch::open_osx - self._card_b_prefix=', self._card_b_prefix)
+        except:
+            pass
+
+        self.swap_drives_if_needed()
+
+    def swap_drives_if_needed(self):
+        # Check the drives have been mounted as expected and swap if needed.
+        if self._card_a_prefix is None:
+            return
+
+        if not self.is_main_drive(self._main_prefix):
+            temp_prefix = self._main_prefix
+            self._main_prefix = self._card_a_prefix
+            self._card_a_prefix = temp_prefix
+
+    def windows_sort_drives(self, drives):
+        return self.sort_drives(drives)
+
+    def sort_drives(self, drives):
+        if len(drives) < 2:
+            return drives
+        main = drives.get('main', None)
+        carda = drives.get('carda', None)
+        if main and carda and not self.is_main_drive(main):
+            drives['main'] = carda
+            drives['carda'] = main
+            debug_print('KoboTouch::sort_drives - swapped drives - main=%s, carda=%s' % (drives['main'], drives['carda']))
+        return drives
+
+    def is_main_drive(self, drive):
+        debug_print('KoboTouch::is_main_drive - drive=%s, path=%s' % (drive, os.path.join(drive, '.kobo')))
+        return os.path.exists(self.normalize_path(os.path.join(drive, '.kobo')))
 
     def books(self, oncard=None, end_session=True):
         debug_print("KoboTouch:books - oncard='%s'"%oncard)
@@ -1782,13 +1846,7 @@ class KOBOTOUCH(KOBO):
                 cursor.execute(query)
             except Exception as e:
                 err = str(e)
-                if not ('___ExpirationStatus' in err or
-                        'FavouritesIndex' in err or
-                        'Accessibility' in err or
-                        'IsDownloaded' in err or
-                        'Series' in err or
-                        'ExternalId' in err
-                        ):
+                if not (any_in(err, '___ExpirationStatus', 'FavouritesIndex', 'Accessibility', 'IsDownloaded', 'Series', 'ExternalId')):
                     raise
                 query= ('SELECT Title, Attribution, DateCreated, ContentID, MimeType, ContentType, '
                         'ImageID, ReadStatus, -1 AS ___ExpirationStatus, "-1" AS '
@@ -1982,7 +2040,8 @@ class KOBOTOUCH(KOBO):
 #                        debug_print('KoboTouch:upload_books: Delete record left if deleted on Touch')
                         cursor.execute(cleanup_query, cleanup_values)
 
-                        self.set_filesize_in_device_database(connection, contentID, fname)
+                        if self.override_kobo_replace_existing:
+                            self.set_filesize_in_device_database(connection, contentID, fname)
 
                         if not self.upload_covers:
                             imageID = self.imageid_from_contentid(contentID)
@@ -2527,8 +2586,9 @@ class KOBOTOUCH(KOBO):
                 for ending, cover_options in self.cover_file_endings().items():
                     kobo_size, min_dbversion, max_dbversion, is_full_size = cover_options
                     if show_debug:
-                        debug_print("KoboTouch:_upload_cover - library_cover_size=%s min_dbversion=%d max_dbversion=%d" % (
-                            library_cover_size, min_dbversion, max_dbversion))
+                        debug_print("KoboTouch:_upload_cover - library_cover_size=%s min_dbversion=%d max_dbversion=%d, is_full_size=%s" % (
+                            library_cover_size, min_dbversion, max_dbversion, is_full_size))
+
                     if self.dbversion >= min_dbversion and self.dbversion <= max_dbversion:
                         if show_debug:
                             debug_print("KoboTouch:_upload_cover - creating cover for ending='%s'"%ending)  # , "library_cover_size'%s'"%library_cover_size)
@@ -2905,6 +2965,7 @@ class KOBOTOUCH(KOBO):
         c.add_opt('update_device_metadata', default=True)
 
         c.add_opt('modify_css', default=False)
+        c.add_opt('override_kobo_replace_existing', default=True)  # Overriding the replace behaviour is how the driver has always worked.
 
         c.add_opt('support_newer_firmware', default=False)
         c.add_opt('debugging_title', default='')
@@ -2933,6 +2994,9 @@ class KOBOTOUCH(KOBO):
     def isAuraH2O(self):
         return self.detected_device.idProduct in self.AURA_H2O_PRODUCT_ID
 
+    def isAuraH2OEdition2(self):
+        return self.detected_device.idProduct in self.AURA_H2O_EDITION2_PRODUCT_ID
+
     def isAuraOne(self):
         return self.detected_device.idProduct in self.AURA_ONE_PRODUCT_ID
 
@@ -2959,6 +3023,8 @@ class KOBOTOUCH(KOBO):
         elif self.isAuraHD():
             _cover_file_endings = self.AURA_HD_COVER_FILE_ENDINGS
         elif self.isAuraH2O():
+            _cover_file_endings = self.AURA_HD_COVER_FILE_ENDINGS
+        elif self.isAuraH2OEdition2():
             _cover_file_endings = self.AURA_HD_COVER_FILE_ENDINGS
         elif self.isAuraOne():
             _cover_file_endings = self.AURA_ONE_COVER_FILE_ENDINGS
@@ -2987,6 +3053,8 @@ class KOBOTOUCH(KOBO):
             device_name = 'Kobo Aura HD'
         elif self.isAuraH2O():
             device_name = 'Kobo Aura H2O'
+        elif self.isAuraH2OEdition2():
+            device_name = 'Kobo Aura H2O Edition 2'
         elif self.isAuraOne():
             device_name = 'Kobo Aura ONE'
         elif self.isGlo():
@@ -3012,7 +3080,12 @@ class KOBOTOUCH(KOBO):
 
     @property
     def collections_columns(self):
-        return self.get_pref('collections_columns')
+        return self.get_pref('collections_columns') if self.manage_collections else ''
+
+    def get_collections_attributes(self):
+        collections_str = self.collections_columns
+        collections = [x.lower().strip() for x in collections_str.split(',')] if collections_str else []
+        return collections
 
     @property
     def delete_empty_collections(self):
@@ -3023,7 +3096,7 @@ class KOBOTOUCH(KOBO):
         # Cache the collection from the options string.
         if not hasattr(self.opts, '_ignore_collections_names'):
             icn = self.get_pref('ignore_collections_names')
-            self.opts._ignore_collections_names = [x.lower().strip() for x in icn.split(',')] if icn else []
+            self.opts._ignore_collections_names = [x.strip() for x in icn.split(',')] if icn else []
         return self.opts._ignore_collections_names
 
     @property
@@ -3053,6 +3126,10 @@ class KOBOTOUCH(KOBO):
 
     def modifying_css(self):
         return self.get_pref('modify_css')
+
+    @property
+    def override_kobo_replace_existing(self):
+        return self.get_pref('override_kobo_replace_existing')
 
     @property
     def update_device_metadata(self):

@@ -8,7 +8,7 @@ __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 # Imports {{{
-import os, shutil, uuid, json, glob, time, cPickle, hashlib, errno, sys
+import os, shutil, uuid, json, glob, time, hashlib, errno, sys
 from functools import partial
 
 import apsw
@@ -23,6 +23,7 @@ from calibre.db.delete_service import delete_service
 from calibre.db.errors import NoSuchFormat
 from calibre.library.field_metadata import FieldMetadata
 from calibre.ebooks.metadata import title_sort, author_to_author_sort
+from calibre.utils import pickle_binary_string, unpickle_binary_string
 from calibre.utils.icu import sort_key
 from calibre.utils.config import to_json, from_json, prefs, tweaks
 from calibre.utils.date import utcfromtimestamp, parse_date
@@ -31,7 +32,10 @@ from calibre.utils.filenames import (
     WindowsAtomicFolderMove, atomic_rename, remove_dir_if_empty,
     copytree_using_links, copyfile_using_links)
 from calibre.utils.img import save_cover_data_to
-from calibre.utils.formatter_functions import load_user_template_functions, unload_user_template_functions
+from calibre.utils.formatter_functions import (load_user_template_functions,
+            unload_user_template_functions,
+            compile_user_template_functions,
+            formatter_functions)
 from calibre.db.tables import (OneToOneTable, ManyToOneTable, ManyToManyTable,
         SizeTable, FormatsTable, AuthorsTable, IdentifiersTable, PathTable,
         CompositeTable, UUIDTable, RatingTable)
@@ -316,6 +320,11 @@ class Connection(apsw.Connection):  # {{{
 # }}}
 
 
+def set_global_state(backend):
+    load_user_template_functions(
+        backend.library_id, (), precompiled_user_functions=backend.get_user_template_functions())
+
+
 class DB(object):
 
     PATH_LIMIT = 40 if iswindows else 100
@@ -401,9 +410,21 @@ class DB(object):
         self.initialize_prefs(default_prefs, restore_all_prefs, progress_callback)
         self.initialize_custom_columns()
         self.initialize_tables()
+        self.set_user_template_functions(compile_user_template_functions(
+                                 self.prefs.get('user_template_functions', [])))
         if load_user_formatter_functions:
-            load_user_template_functions(self.library_id,
-                                        self.prefs.get('user_template_functions', []))
+            set_global_state(self)
+
+    def get_template_functions(self):
+        return self._template_functions
+
+    def get_user_template_functions(self):
+        return self._user_template_functions
+
+    def set_user_template_functions(self, user_formatter_functions):
+        self._user_template_functions = user_formatter_functions
+        self._template_functions = formatter_functions().get_builtins().copy()
+        self._template_functions.update(user_formatter_functions)
 
     def initialize_prefs(self, default_prefs, restore_all_prefs, progress_callback):  # {{{
         self.prefs = DBPrefs(self)
@@ -444,13 +465,15 @@ class DB(object):
         defs['similar_series_search_key'] = 'series'
         defs['similar_series_match_kind'] = 'match_any'
         defs['book_display_fields'] = [
-        ('title', False), ('authors', True), ('formats', True),
-        ('series', True), ('identifiers', True), ('tags', True),
+        ('title', False), ('authors', True), ('series', True),
+        ('identifiers', True), ('tags', True), ('formats', True),
         ('path', True), ('publisher', False), ('rating', False),
         ('author_sort', False), ('sort', False), ('timestamp', False),
         ('uuid', False), ('comments', True), ('id', False), ('pubdate', False),
         ('last_modified', False), ('size', False), ('languages', False),
         ]
+        defs['popup_book_display_fields'] = [('title', True)] + [(f[0], True) for f in defs['book_display_fields'] if f[0] != 'title']
+        defs['qv_display_fields'] = [('title', True), ('authors', True), ('series', True)]
         defs['virtual_libraries'] = {}
         defs['virtual_lib_on_startup'] = defs['cs_virtual_lib_on_startup'] = ''
         defs['virt_libs_hidden'] = defs['virt_libs_order'] = ()
@@ -1672,7 +1695,10 @@ class DB(object):
     def conversion_options(self, book_id, fmt):
         for (data,) in self.conn.get('SELECT data FROM conversion_options WHERE book=? AND format=?', (book_id, fmt.upper())):
             if data:
-                return cPickle.loads(bytes(data))
+                try:
+                    return unpickle_binary_string(bytes(data))
+                except Exception:
+                    pass
 
     def has_conversion_options(self, ids, fmt='PIPE'):
         ids = frozenset(ids)
@@ -1689,7 +1715,8 @@ class DB(object):
             [(book_id, fmt.upper()) for book_id in book_ids])
 
     def set_conversion_options(self, options, fmt):
-        options = [(book_id, fmt.upper(), buffer(cPickle.dumps(data, -1))) for book_id, data in options.iteritems()]
+        options = [(book_id, fmt.upper(), buffer(pickle_binary_string(data.encode('utf-8') if isinstance(data, unicode) else data)))
+                for book_id, data in options.iteritems()]
         self.executemany('INSERT OR REPLACE INTO conversion_options(book,format,data) VALUES (?,?,?)', options)
 
     def get_top_level_move_items(self, all_paths):

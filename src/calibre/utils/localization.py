@@ -45,8 +45,16 @@ def get_system_locale():
             traceback.print_exc()
     if lang is None:
         try:
-            lang = locale.getdefaultlocale(['LANGUAGE', 'LC_ALL', 'LC_CTYPE',
-                                        'LC_MESSAGES', 'LANG'])[0]
+            envvars = ['LANGUAGE', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'LANG']
+            lang = locale.getdefaultlocale(envvars)[0]
+
+            # lang is None in two cases: either the environment variable is not
+            # set or it's "C". Stop looking for a language in the latter case.
+            if lang is None:
+                for var in envvars:
+                    if os.environ.get(var) == 'C':
+                        lang = 'en_US'
+                        break
         except:
             pass  # This happens on Ubuntu apparently
         if lang is None and 'LANG' in os.environ:  # Needed for OS X
@@ -57,6 +65,18 @@ def get_system_locale():
     if lang:
         lang = lang.replace('-', '_')
         lang = '_'.join(lang.split('_')[:2])
+    return lang
+
+
+def sanitize_lang(lang):
+    if lang:
+        match = re.match('[a-z]{2,3}(_[A-Z]{2}){0,1}', lang)
+        if match:
+            lang = match.group()
+    if lang == 'zh':
+        lang = 'zh_CN'
+    if not lang:
+        lang = 'en'
     return lang
 
 
@@ -73,15 +93,7 @@ def get_lang():
         import traceback
         traceback.print_exc()
         lang = None
-    if lang:
-        match = re.match('[a-z]{2,3}(_[A-Z]{2}){0,1}', lang)
-        if match:
-            lang = match.group()
-    if lang == 'zh':
-        lang = 'zh_CN'
-    if not lang:
-        lang = 'en'
-    return lang
+    return sanitize_lang(lang)
 
 
 def is_rtl():
@@ -118,11 +130,17 @@ def get_all_translators():
                 yield lang, GNUTranslations(buf)
 
 
-def get_single_translator(mpath):
+def get_single_translator(mpath, which='messages'):
     from zipfile import ZipFile
     with ZipFile(P('localization/locales.zip', allow_user_override=False), 'r') as zf:
-        buf = cStringIO.StringIO(zf.read(mpath + '/messages.mo'))
+        buf = cStringIO.StringIO(zf.read(mpath + '/%s.mo' % which))
         return GNUTranslations(buf)
+
+
+def get_iso639_translator(lang):
+    lang = sanitize_lang(lang)
+    mpath = get_lc_messages_path(lang) if lang else None
+    return get_single_translator(mpath, 'iso639') if mpath else None
 
 
 def get_translator(bcp_47_code):
@@ -218,12 +236,19 @@ def set_translators():
     if t is None:
         t = NullTranslations()
 
+    try:
+        set_translators.lang = t.info().get('language')
+    except Exception:
+        pass
     t.install(unicode=True, names=('ngettext',))
     # Now that we have installed a translator, we have to retranslate the help
     # for the global prefs object as it was instantiated in get_lang(), before
     # the translator was installed.
     from calibre.utils.config_base import prefs
     prefs.retranslate_help()
+
+
+set_translators.lang = None
 
 
 _iso639 = None
@@ -298,7 +323,7 @@ if False:
     _('Select All')
     _('Copy Link')
     _('&Select All')
-    _('Copy &Link location')
+    _('Copy &Link Location')
     _('&Undo')
     _('&Redo')
     _('Cu&t')
@@ -310,6 +335,8 @@ if False:
     _('Fonts')
     _('&Step up')
     _('Step &down')
+    _('Close without Saving')
+    _('Close Tab')
 
 _lcase_map = {}
 for k in _extra_lang_codes:
@@ -325,13 +352,7 @@ def _load_iso639():
     return _iso639
 
 
-def get_language(lang):
-    translate = _
-    lang = _lcase_map.get(lang, lang)
-    if lang in _extra_lang_codes:
-        # The translator was not active when _extra_lang_codes was defined, so
-        # re-translate
-        return translate(_extra_lang_codes[lang])
+def get_iso_language(lang_trans, lang):
     iso639 = _load_iso639()
     ans = lang
     lang = lang.split('_')[0].lower()
@@ -342,10 +363,17 @@ def get_language(lang):
             ans = iso639['by_3b'][lang]
         else:
             ans = iso639['by_3t'].get(lang, ans)
-    try:
-        return _lang_trans.ugettext(ans)
-    except AttributeError:
-        return translate(ans)
+    return lang_trans(ans)
+
+
+def get_language(lang):
+    translate = _
+    lang = _lcase_map.get(lang, lang)
+    if lang in _extra_lang_codes:
+        # The translator was not active when _extra_lang_codes was defined, so
+        # re-translate
+        return translate(_extra_lang_codes[lang])
+    return get_iso_language(getattr(_lang_trans, 'ugettext', translate), lang)
 
 
 def calibre_langcode_to_name(lc, localize=True):
@@ -398,6 +426,16 @@ def lang_map():
     return _lang_map
 
 
+def lang_map_for_ui():
+    ans = getattr(lang_map_for_ui, 'ans', None)
+    if ans is None:
+        ans = lang_map().copy()
+        for x in ('zxx', 'mis', 'mul'):
+            ans.pop(x, None)
+        lang_map_for_ui.ans = ans
+    return ans
+
+
 def langnames_to_langcodes(names):
     '''
     Given a list of localized language names return a mapping of the names to 3
@@ -439,21 +477,53 @@ def get_udc():
     return _udc
 
 
+def user_manual_stats():
+    stats = getattr(user_manual_stats, 'stats', None)
+    if stats is None:
+        import json
+        try:
+            stats = json.loads(P('user-manual-translation-stats.json', allow_user_override=False, data=True))
+        except EnvironmentError:
+            stats = {}
+        user_manual_stats.stats = stats
+    return stats
+
+
 def localize_user_manual_link(url):
     lc = lang_as_iso639_1(get_lang())
     if lc == 'en':
         return url
-    import json
-    try:
-        stats = json.loads(P('user-manual-translation-stats.json', allow_user_override=False, data=True))
-    except EnvironmentError:
-        return url
+    stats = user_manual_stats()
     if stats.get(lc, 0) < 0.3:
         return url
     from urlparse import urlparse, urlunparse
     parts = urlparse(url)
     path = re.sub(r'/generated/[a-z]+/', '/generated/%s/' % lc, parts.path or '')
     path = '/%s%s' % (lc, path)
+    parts = list(parts)
+    parts[2] = path
+    return urlunparse(parts)
+
+
+def website_languages():
+    stats = getattr(website_languages, 'stats', None)
+    if stats is None:
+        try:
+            stats = frozenset(P('localization/website-languages.txt', allow_user_override=False, data=True).split())
+        except EnvironmentError:
+            stats = frozenset()
+        website_languages.stats = stats
+    return stats
+
+
+def localize_website_link(url):
+    lc = lang_as_iso639_1(get_lang())
+    langs = website_languages()
+    if lc == 'en' or lc not in langs:
+        return url
+    from urlparse import urlparse, urlunparse
+    parts = urlparse(url)
+    path = '/{}{}'.format(lc, parts.path)
     parts = list(parts)
     parts[2] = path
     return urlunparse(parts)

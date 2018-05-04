@@ -15,17 +15,19 @@ from PyQt5.Qt import QCoreApplication, QIcon, QObject, QTimer
 
 from calibre import force_unicode, plugins, prints
 from calibre.constants import (
-    DEBUG, __appname__, filesystem_encoding, get_portable_base, islinux, isosx,
-    iswindows, MAIN_APP_UID
+    DEBUG, MAIN_APP_UID, __appname__, filesystem_encoding, get_portable_base,
+    islinux, isosx, iswindows
 )
 from calibre.gui2 import (
     Application, choose_dir, error_dialog, gprefs, initialize_file_icon_provider,
-    question_dialog, setup_gui_option_parser
+    question_dialog, set_app_uid, setup_gui_option_parser
 )
 from calibre.gui2.main_window import option_parser as _option_parser
 from calibre.gui2.splash_screen import SplashScreen
 from calibre.utils.config import dynamic, prefs
 from calibre.utils.ipc import RC, gui_socket_address
+from calibre.utils.lock import singleinstance
+from calibre.utils.monotonic import monotonic
 
 if iswindows:
     winutil = plugins['winutil'][0]
@@ -39,7 +41,7 @@ def option_parser():
     parser = _option_parser(_('''\
 %prog [options] [path_to_ebook]
 
-Launch the main calibre Graphical User Interface and optionally add the ebook at
+Launch the main calibre Graphical User Interface and optionally add the e-book at
 path_to_ebook to the database.
 '''))
     parser.add_option('--with-library', default=None, action='store',
@@ -111,9 +113,10 @@ def init_qt(args):
     app = Application(args, override_program_name=override)
     app.file_event_hook = EventAccumulator()
     try:
-        from PyQt5.Qt import QX11Info
-        is_x11 = QX11Info.isPlatformX11()
+        is_x11 = app.platformName() == 'xcb'
     except Exception:
+        import traceback
+        traceback.print_exc()
         is_x11 = False
     # Ancient broken VNC servers cannot handle icons of size greater than 256
     # https://www.mobileread.com/forums/showthread.php?t=278447
@@ -210,7 +213,8 @@ class GuiRunner(QObject):
     initialization'''
 
     def __init__(self, opts, args, actions, listener, app, gui_debug=None):
-        self.startup_time = time.time()
+        self.startup_time = monotonic()
+        self.timed_print('Starting up...')
         self.opts, self.args, self.listener, self.app = opts, args, listener, app
         self.gui_debug = gui_debug
         self.actions = actions
@@ -218,11 +222,14 @@ class GuiRunner(QObject):
         QObject.__init__(self)
         self.splash_screen = None
         self.timer = QTimer.singleShot(1, self.initialize)
+
+    def timed_print(self, *a, **kw):
         if DEBUG:
-            prints('Starting up...')
+            prints('[{:.2f}]'.format(monotonic() - self.startup_time), *a, **kw)
 
     def start_gui(self, db):
         from calibre.gui2.ui import Main
+        self.timed_print('Constructing main UI...')
         main = self.main = Main(self.opts, gui_debug=self.gui_debug)
         if self.splash_screen is not None:
             self.splash_screen.show_message(_('Initializing user interface...'))
@@ -230,12 +237,13 @@ class GuiRunner(QObject):
             with gprefs:  # Only write gui.json after initialization is complete
                 main.initialize(self.library_path, db, self.listener, self.actions)
         finally:
+            self.timed_print('main UI initialized...')
             if self.splash_screen is not None:
+                self.timed_print('Hiding splash screen')
                 self.splash_screen.finish(main)
+                self.timed_print('splash screen hidden')
             self.splash_screen = None
-        if DEBUG:
-            prints('Started up in %.2f seconds'%(time.time() -
-                self.startup_time), 'with', len(db.data), 'books')
+        self.timed_print('Started up in %.2f seconds'%(monotonic() - self.startup_time), 'with', len(db.data), 'books')
         add_filesystem_book = partial(main.iactions['Add Books'].add_filesystem_book, allow_device=False)
         main.set_exception_handler()
         if len(self.args) > 1:
@@ -287,6 +295,7 @@ class GuiRunner(QObject):
                     det_msg=traceback.format_exc())
                 self.initialization_failed()
 
+        self.timed_print('db initialized')
         try:
             self.start_gui(db)
         except Exception:
@@ -298,6 +307,7 @@ class GuiRunner(QObject):
     def initialize_db(self):
         from calibre.db.legacy import LibraryDatabase
         db = None
+        self.timed_print('Initializing db...')
         try:
             db = LibraryDatabase(self.library_path)
         except apsw.Error:
@@ -330,9 +340,11 @@ class GuiRunner(QObject):
         self.initialize_db_stage2(db, None)
 
     def show_splash_screen(self):
+        self.timed_print('Showing splash screen...')
         self.splash_screen = SplashScreen()
         self.splash_screen.show()
         self.splash_screen.show_message(_('Starting %s: Loading books...') % __appname__)
+        self.timed_print('splash screen shown')
 
     def hide_splash_screen(self):
         if self.splash_screen is not None:
@@ -349,38 +361,15 @@ class GuiRunner(QObject):
         self.initialize_db()
 
 
-def get_debug_executable():
-    e = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
-    if hasattr(sys, 'frameworks_dir'):
-        base = os.path.dirname(sys.frameworks_dir)
-        if 'calibre-debug.app' not in base:
-            base = os.path.join(base, 'calibre-debug.app', 'Contents')
-        exe = os.path.basename(e)
-        if '-debug' not in exe:
-            exe += '-debug'
-        exe = os.path.join(base, 'MacOS', exe)
-    else:
-        exe = e
-        if '-debug' not in exe:
-            base, ext = os.path.splitext(e)
-            exe = base + '-debug' + ext
-    return exe
-
-
-def run_in_debug_mode(logpath=None):
+def run_in_debug_mode():
+    from calibre.debug import run_calibre_debug
     import tempfile, subprocess
     fd, logpath = tempfile.mkstemp('.txt')
     os.close(fd)
-
-    exe = get_debug_executable()
-    print 'Starting debug executable:', exe
-    creationflags = 0
-    if iswindows:
-        import win32process
-        creationflags = win32process.CREATE_NO_WINDOW
-    subprocess.Popen([exe, '--gui-debug', logpath], stdout=open(logpath, 'w'),
-            stderr=subprocess.STDOUT, stdin=open(os.devnull, 'r'),
-            creationflags=creationflags)
+    os.environ[b'CALIBRE_RESTARTING_FROM_GUI'] = b'1'
+    run_calibre_debug(
+        '--gui-debug', logpath, stdout=lopen(logpath, 'w'),
+        stderr=subprocess.STDOUT, stdin=lopen(os.devnull, 'r'))
 
 
 def shellquote(s):
@@ -388,6 +377,16 @@ def shellquote(s):
 
 
 def run_gui(opts, args, listener, app, gui_debug=None):
+    si = singleinstance('db')
+    if not si:
+        ext = '.exe' if iswindows else ''
+        error_dialog(None, _('Cannot start calibre'), _(
+            'Another calibre program that can modify calibre libraries, such as,'
+            ' {} or {} is already running. You must first shut it down, before'
+            ' starting the main calibre program. If you are sure no such'
+            ' program is running, try restarting your computer.').format(
+                'calibre-server' + ext, 'calibredb' + ext), show=True)
+        return 1
     initialize_file_icon_provider()
     app.load_builtin_fonts(scan_for_fonts=True)
     if not dynamic.get('welcome_wizard_was_run', False):
@@ -415,6 +414,7 @@ def run_gui(opts, args, listener, app, gui_debug=None):
                 prints('Restarting with:', app)
                 subprocess.Popen('sleep 3s; open ' + shellquote(app), shell=True)
             else:
+                os.environ[b'CALIBRE_RESTARTING_FROM_GUI'] = b'1'
                 if iswindows and hasattr(winutil, 'prepare_for_restart'):
                     winutil.prepare_for_restart()
                 args = ['-g'] if os.path.splitext(e)[0].endswith('-debug') else []
@@ -441,7 +441,7 @@ def run_gui(opts, args, listener, app, gui_debug=None):
     return ret
 
 
-singleinstance_name = 'calibre_GUI'
+singleinstance_name = 'GUI'
 
 
 def cant_start(msg=_('If you are sure it is not running')+', ',
@@ -486,7 +486,6 @@ def shutdown_other(rc=None):
         if rc.conn is None:
             prints(_('No running calibre found'))
             return  # No running instance found
-    from calibre.utils.lock import singleinstance
     rc.conn.send('shutdown:')
     prints(_('Shutdown command sent, waiting for shutdown...'))
     for i in xrange(50):
@@ -519,6 +518,8 @@ def create_listener():
 
 
 def main(args=sys.argv):
+    if os.environ.pop(b'CALIBRE_RESTARTING_FROM_GUI', None) == b'1':
+        time.sleep(2)  # give the parent process time to cleanup and close
     if iswindows and 'CALIBRE_REPAIR_CORRUPTED_DB' in os.environ:
         windows_repair()
         return 0
@@ -531,18 +532,13 @@ def main(args=sys.argv):
         # Ensure that all ebook editor instances are grouped together in the task
         # bar. This prevents them from being grouped with viewer process when
         # launched from within calibre, as both use calibre-parallel.exe
-        import ctypes
-        try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(MAIN_APP_UID)
-        except Exception:
-            pass  # Only available on windows 7 and newer
+        set_app_uid(MAIN_APP_UID)
 
     try:
         app, opts, args = init_qt(args)
     except AbortInit:
         return 1
     try:
-        from calibre.utils.lock import singleinstance
         si = singleinstance(singleinstance_name)
     except Exception:
         error_dialog(None, _('Cannot start calibre'), _(

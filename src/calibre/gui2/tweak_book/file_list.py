@@ -5,6 +5,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import os
 import posixpath
+import sys
+import textwrap
 from binascii import hexlify
 from collections import Counter, OrderedDict, defaultdict
 from functools import partial
@@ -23,9 +25,13 @@ from calibre.ebooks.oeb.polish.container import OEB_FONTS, guess_type
 from calibre.ebooks.oeb.polish.cover import (
     get_cover_page_name, get_raster_cover_name, is_raster_image
 )
-from calibre.ebooks.oeb.polish.replace import get_recommended_folders
+from calibre.ebooks.oeb.polish.css import add_stylesheet_links
+from calibre.ebooks.oeb.polish.replace import (
+    get_recommended_folders, get_spine_order_for_all_files
+)
 from calibre.gui2 import (
-    choose_files, choose_save_file, elided_text, error_dialog, question_dialog
+    choose_dir, choose_files, choose_save_file, elided_text, error_dialog,
+    question_dialog
 )
 from calibre.gui2.tweak_book import (
     CONTAINER_DND_MIMETYPE, current_container, editors, tprefs
@@ -33,7 +39,6 @@ from calibre.gui2.tweak_book import (
 from calibre.gui2.tweak_book.editor import syntax_from_mime
 from calibre.gui2.tweak_book.templates import template_for
 from calibre.utils.icu import sort_key
-
 
 TOP_ICON_SIZE = 24
 NAME_ROLE = Qt.UserRole
@@ -68,13 +73,16 @@ def name_is_ok(name, show_error):
     return True
 
 
-def get_bulk_rename_settings(parent, number, msg=None, sanitize=sanitize_file_name_unicode, leading_zeros=True, prefix=None, category='text'):  # {{{
+def get_bulk_rename_settings(parent, number, msg=None, sanitize=sanitize_file_name_unicode,
+        leading_zeros=True, prefix=None, category='text', allow_spine_order=False):  # {{{
     d = QDialog(parent)
     d.setWindowTitle(_('Bulk rename items'))
     d.l = l = QFormLayout(d)
     d.setLayout(l)
     d.prefix = p = QLineEdit(d)
-    prefix = prefix or {k:v for k, __, v in CATEGORIES}.get(category, _('Chapter-'))
+    default_prefix = {k:v for k, __, v in CATEGORIES}.get(category, _('Chapter-'))
+    previous = tprefs.get('file-list-bulk-rename-prefix', {})
+    prefix = prefix or previous.get(category, default_prefix)
     p.setText(prefix)
     p.selectAll()
     d.la = la = QLabel(msg or _(
@@ -84,19 +92,30 @@ def get_bulk_rename_settings(parent, number, msg=None, sanitize=sanitize_file_na
     d.num = num = QSpinBox(d)
     num.setMinimum(0), num.setValue(1), num.setMaximum(1000)
     l.addRow(_('Starting &number:'), num)
+    if allow_spine_order:
+        d.spine_order = QCheckBox(_('Rename files according to their book order'))
+        d.spine_order.setToolTip(textwrap.fill(_(
+            'Rename the selected files according to the order they appear in the book, instead of the order they were selected in.')))
+        l.addRow(d.spine_order)
     d.bb = bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
     bb.accepted.connect(d.accept), bb.rejected.connect(d.reject)
     l.addRow(bb)
+    ans = {'prefix': None, 'start': None}
 
     if d.exec_() == d.Accepted:
         prefix = sanitize(unicode(d.prefix.text()))
+        previous[category] = prefix
+        tprefs.set('file-list-bulk-rename-prefix', previous)
         num = d.num.value()
         fmt = '%d'
         if leading_zeros:
             largest = num + number - 1
             fmt = '%0{0}d'.format(len(str(largest)))
-        return prefix + fmt, num
-    return None, None
+        ans['prefix'] = prefix + fmt
+        ans['start'] = num
+        if allow_spine_order:
+            ans['spine_order'] = d.spine_order.isChecked()
+    return ans
 # }}}
 
 
@@ -482,6 +501,9 @@ class FileList(QTreeWidget):
             m.addAction(QIcon(I('save.png')), _('Export %s') % n, partial(self.export, cn))
             if cn not in container.names_that_must_not_be_changed and cn not in container.names_that_must_not_be_removed and mt not in OEB_FONTS:
                 m.addAction(_('Replace %s with file...') % n, partial(self.replace, cn))
+            if num > 1:
+                m.addAction(QIcon(I('save.png')), _('Export all %d selected files') % num, self.export_selected)
+
             m.addSeparator()
 
             m.addAction(QIcon(I('modified.png')), _('&Rename %s') % n, self.edit_current_item)
@@ -581,14 +603,23 @@ class FileList(QTreeWidget):
         names = self.request_rename_common()
         if names is not None:
             categories = Counter(unicode(item.data(0, CATEGORY_ROLE) or '') for item in self.selectedItems())
-            fmt, num = get_bulk_rename_settings(self, len(names), category=categories.most_common(1)[0][0])
+            settings = get_bulk_rename_settings(self, len(names), category=categories.most_common(1)[0][0], allow_spine_order=True)
+            fmt, num = settings['prefix'], settings['start']
             if fmt is not None:
                 def change_name(name, num):
                     parts = name.split('/')
                     base, ext = parts[-1].rpartition('.')[0::2]
                     parts[-1] = (fmt % num) + '.' + ext
                     return '/'.join(parts)
-                name_map = {n:change_name(n, num + i) for i, n in enumerate(names)}
+                if settings['spine_order']:
+                    order_map = get_spine_order_for_all_files(current_container())
+                    select_map = {n:i for i, n in enumerate(names)}
+
+                    def key(n):
+                        return order_map.get(n, (sys.maxsize, select_map[n]))
+                    name_map = {n: change_name(n, num + i) for i, n in enumerate(sorted(names, key=key))}
+                else:
+                    name_map = {n:change_name(n, num + i) for i, n in enumerate(names)}
                 self.bulk_rename_requested.emit(name_map)
 
     def request_change_ext(self):
@@ -658,9 +689,7 @@ class FileList(QTreeWidget):
     def selectedIndexes(self):
         ans = QTreeWidget.selectedIndexes(self)
         if self.ordered_selected_indexes:
-            # The reverse is needed because Qt's implementation of dropEvent
-            # reverses the selectedIndexes when dropping.
-            ans = list(sorted(ans, key=lambda idx:idx.row(), reverse=True))
+            ans = list(sorted(ans, key=lambda idx:idx.row()))
         return ans
 
     def dropEvent(self, event):
@@ -734,6 +763,14 @@ class FileList(QTreeWidget):
         if path:
             self.export_requested.emit(name, path)
 
+    def export_selected(self):
+        names = self.selected_names
+        if not names:
+            return
+        path = choose_dir(self, 'tweak_book_export_selected', _('Choose location'))
+        if path:
+            self.export_requested.emit(names, path)
+
     def replace(self, name):
         c = current_container()
         mt = c.mime_map[name]
@@ -741,7 +778,7 @@ class FileList(QTreeWidget):
         filters = [oext]
         fname = _('Files')
         if mt in OEB_DOCS:
-            fname = _('HTML Files')
+            fname = _('HTML files')
             filters = 'html htm xhtm xhtml shtml'.split()
         elif is_raster_image(mt):
             fname = _('Images')
@@ -814,6 +851,9 @@ class NewFileDialog(QDialog):  # {{{
         self.name = n = QLineEdit(self)
         n.textChanged.connect(self.update_ok)
         l.addWidget(n)
+        self.link_css = lc = QCheckBox(_('Automatically add style-sheet links into new HTML files'))
+        lc.setChecked(tprefs['auto_link_stylesheets'])
+        l.addWidget(lc)
         self.err_label = la = QLabel('')
         la.setWordWrap(True)
         l.addWidget(la)
@@ -843,6 +883,7 @@ class NewFileDialog(QDialog):  # {{{
             self.do_import_file(path[0])
 
     def do_import_file(self, path, hide_button=False):
+        self.link_css.setVisible(False)
         with open(path, 'rb') as f:
             self.file_data = f.read()
         name = os.path.basename(path)
@@ -865,6 +906,7 @@ class NewFileDialog(QDialog):  # {{{
         if not self.name_is_ok:
             return error_dialog(self, _('No name specified'), _(
                 'You must specify a name for the new file, with an extension, for example, chapter1.html'), show=True)
+        tprefs['auto_link_stylesheets'] = self.link_css.isChecked()
         name = unicode(self.name.text())
         name, ext = name.rpartition('.')[0::2]
         name = (name + '.' + ext.lower()).replace('\\', '/')
@@ -872,6 +914,10 @@ class NewFileDialog(QDialog):  # {{{
         if not self.file_data:
             if mt in OEB_DOCS:
                 self.file_data = template_for('html').encode('utf-8')
+                if tprefs['auto_link_stylesheets']:
+                    data = add_stylesheet_links(current_container(), name, self.file_data)
+                    if data is not None:
+                        self.file_data = data
                 self.using_template = True
             elif mt in OEB_STYLES:
                 self.file_data = template_for('css').encode('utf-8')

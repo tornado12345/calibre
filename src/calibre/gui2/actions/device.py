@@ -9,12 +9,9 @@ from functools import partial
 
 from PyQt5.Qt import QIcon, QMenu, QTimer, QToolButton, pyqtSignal
 
-from calibre.constants import get_osx_version, isosx, iswindows
 from calibre.gui2 import info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2.dialogs.smartdevice import SmartdeviceDialog
-from calibre.library.server import server_config as content_server_config
-from calibre.utils.config import tweaks
 from calibre.utils.icu import primary_sort_key
 from calibre.utils.smtp import config as email_config
 
@@ -22,11 +19,11 @@ from calibre.utils.smtp import config as email_config
 class ShareConnMenu(QMenu):  # {{{
 
     connect_to_folder = pyqtSignal()
-    connect_to_itunes = pyqtSignal()
 
     config_email = pyqtSignal()
     toggle_server = pyqtSignal()
     control_smartdevice = pyqtSignal()
+    server_state_changed_signal = pyqtSignal(object, object)
     dont_add_to = frozenset(['context-menu-device'])
 
     DEVICE_MSGS = [_('Start wireless device connection'),
@@ -34,22 +31,16 @@ class ShareConnMenu(QMenu):  # {{{
 
     def __init__(self, parent=None):
         QMenu.__init__(self, parent)
+        self.ip_text = ''
         mitem = self.addAction(QIcon(I('devices/folder.png')), _('Connect to folder'))
         mitem.setEnabled(True)
         mitem.triggered.connect(lambda x : self.connect_to_folder.emit())
         self.connect_to_folder_action = mitem
-        mitem = self.addAction(QIcon(I('devices/itunes.png')),
-                _('Connect to iTunes'))
-        mitem.setEnabled(True)
-        mitem.triggered.connect(lambda x : self.connect_to_itunes.emit())
-        self.connect_to_itunes_action = mitem
-        itunes_ok = iswindows or (isosx and get_osx_version() < (10, 9, 0))
-        mitem.setVisible(itunes_ok)
 
         self.addSeparator()
         self.toggle_server_action = \
             self.addAction(QIcon(I('network-server.png')),
-            _('Start Content Server'))
+            _('Start Content server'))
         self.toggle_server_action.triggered.connect(lambda x:
                 self.toggle_server.emit())
         self.control_smartdevice_action = \
@@ -65,28 +56,30 @@ class ShareConnMenu(QMenu):  # {{{
             r = parent.keyboard.register_shortcut
             prefix = 'Share/Connect Menu '
             gr = ConnectShareAction.action_spec[0]
-            for attr in ('folder', 'itunes'):
-                if not (iswindows or isosx) and attr == 'itunes':
-                    continue
+            for attr in ('folder', ):
                 ac = getattr(self, 'connect_to_%s_action'%attr)
                 r(prefix + attr, unicode(ac.text()), action=ac,
                         group=gr)
-            r(prefix+' content server', _('Start/stop content server'),
+            r(prefix+' content server', _('Start/stop Content server'),
                     action=self.toggle_server_action, group=gr)
 
     def server_state_changed(self, running):
         from calibre.utils.mdns import get_external_ip, verify_ipV4_address
-        text = _('Start Content Server')
+        text = _('Start Content server')
         if running:
-            listen_on = (verify_ipV4_address(tweaks['server_listen_on']) or
-                    get_external_ip())
-            try :
-                cs_port = content_server_config().parse().port
-                ip_text = _(' [%(ip)s, port %(port)d]')%dict(ip=listen_on,
-                        port=cs_port)
-            except:
+            from calibre.srv.opts import server_config
+            opts = server_config()
+            listen_on = verify_ipV4_address(opts.listen_on) or get_external_ip()
+            try:
+                ip_text = _(' [%(ip)s, port %(port)d]')%dict(
+                    ip=listen_on, port=opts.port)
+            except Exception:
                 ip_text = ' [%s]'%listen_on
-            text = _('Stop Content Server') + ip_text
+            self.ip_text = ip_text
+            self.server_state_changed_signal.emit(running, ip_text)
+            text = _('Stop Content server') + ip_text
+        else:
+            self.ip_text = ''
         self.toggle_server_action.setText(text)
 
     def hide_smartdevice_menus(self):
@@ -157,7 +150,6 @@ class ShareConnMenu(QMenu):  # {{{
 
     def set_state(self, device_connected, device):
         self.connect_to_folder_action.setEnabled(not device_connected)
-        self.connect_to_itunes_action.setEnabled(not device_connected)
 
 
 # }}}
@@ -198,7 +190,6 @@ class ConnectShareAction(InterfaceAction):
             initial_plugin=('Sharing', 'Email')))
         self.qaction.setMenu(self.share_conn_menu)
         self.share_conn_menu.connect_to_folder.connect(self.gui.connect_to_folder)
-        self.share_conn_menu.connect_to_itunes.connect(self.gui.connect_to_itunes)
 
     def location_selected(self, loc):
         enabled = loc == 'library'
@@ -224,7 +215,7 @@ class ConnectShareAction(InterfaceAction):
         if self.gui.content_server is None:
             self.gui.start_content_server()
         else:
-            self.gui.content_server.threaded_exit()
+            self.gui.content_server.stop()
             self.stopping_msg = info_dialog(self.gui, _('Stopping'),
                     _('Stopping server, this could take up to a minute, please wait...'),
                     show_copy_button=False)

@@ -161,11 +161,12 @@ class Config(QDialog, Ui_Dialog):
 
         self.input_formats.currentIndexChanged[str].connect(self.setup_pipeline)
         self.output_formats.currentIndexChanged[str].connect(self.setup_pipeline)
+        self.groups.setSpacing(5)
         self.groups.activated[(QModelIndex)].connect(self.show_pane)
         self.groups.clicked[(QModelIndex)].connect(self.show_pane)
         self.groups.entered[(QModelIndex)].connect(self.show_group_help)
         rb = self.buttonBox.button(self.buttonBox.RestoreDefaults)
-        rb.setText(_('Restore &Defaults'))
+        rb.setText(_('Restore &defaults'))
         rb.clicked.connect(self.restore_defaults)
         self.groups.setMouseTracking(True)
         geom = gprefs.get('convert_single_dialog_geom', None)
@@ -177,7 +178,7 @@ class Config(QDialog, Ui_Dialog):
     def sizeHint(self):
         desktop = QCoreApplication.instance().desktop()
         geom = desktop.availableGeometry(self)
-        nh, nw = max(300, geom.height()-50), max(400, geom.width()-70)
+        nh, nw = max(300, geom.height()-100), max(400, geom.width()-70)
         return QSize(nw, nh)
 
     def restore_defaults(self):
@@ -320,6 +321,3 @@ class Config(QDialog, Ui_Dialog):
     def show_group_help(self, index):
         widget = self._groups_model.widgets[index.row()]
         self.help.setPlainText(widget.HELP)
-
-
-

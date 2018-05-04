@@ -13,8 +13,9 @@ from functools import partial
 
 from calibre.ebooks.oeb.polish.container import get_container
 from calibre.ebooks.oeb.polish.stats import StatsCollector
-from calibre.ebooks.oeb.polish.subset import subset_all_fonts
+from calibre.ebooks.oeb.polish.subset import subset_all_fonts, iter_subsettable_fonts
 from calibre.ebooks.oeb.polish.images import compress_images
+from calibre.ebooks.oeb.polish.upgrade import upgrade_book
 from calibre.ebooks.oeb.polish.embed import embed_all_fonts
 from calibre.ebooks.oeb.polish.cover import set_cover
 from calibre.ebooks.oeb.polish.replace import smarten_punctuation
@@ -33,6 +34,7 @@ ALL_OPTS = {
     'smarten_punctuation':False,
     'remove_unused_css':False,
     'compress_images': False,
+    'upgrade_book': False,
 }
 
 CUSTOMIZATION = {
@@ -46,14 +48,14 @@ SUPPORTED = {'EPUB', 'AZW3'}
 HELP = {'about': _(
 '''\
 <p><i>Polishing books</i> is all about putting the shine of perfection onto
-your carefully crafted ebooks.</p>
+your carefully crafted e-books.</p>
 
-<p>Polishing tries to minimize the changes to the internal code of your ebook.
+<p>Polishing tries to minimize the changes to the internal code of your e-book.
 Unlike conversion, it <i>does not</i> flatten CSS, rename files, change font
 sizes, adjust margins, etc. Every action performs only the minimum set of
 changes needed for the desired effect.</p>
 
-<p>You should use this tool as the last step in your ebook creation process.</p>
+<p>You should use this tool as the last step in your e-book creation process.</p>
 {0}
 <p>Note that polishing only works on files in the %s formats.</p>\
 ''')%_(' or ').join(sorted('<b>%s</b>'%x for x in SUPPORTED)),
@@ -112,6 +114,10 @@ that need to parse them all.</p>
 affecting image quality.</p>
 '''),
 
+'upgrade_book': _('''\
+<p>Upgrade the internal structures of the book, if possible. For instance,
+upgrades EPUB 2 books to EPUB 3 books.</p>
+'''),
 }
 
 
@@ -123,6 +129,7 @@ def hfix(name, raw):
     raw = raw.replace('__XX__', '\n')
     raw = raw.replace('&lt;', '<').replace('&gt;', '>')
     return raw
+
 
 CLI_HELP = {x:hfix(x, re.sub('<.*?>', '', y)) for x, y in HELP.iteritems()}
 # }}}
@@ -144,8 +151,12 @@ def polish_one(ebook, opts, report, customization=None):
     jacket = None
     changed = False
     customization = customization or CUSTOMIZATION.copy()
+    has_subsettable_fonts = False
+    for x in iter_subsettable_fonts(ebook):
+        has_subsettable_fonts = True
+        break
 
-    if opts.subset or opts.embed:
+    if (opts.subset and has_subsettable_fonts) or opts.embed:
         stats = StatsCollector(ebook, do_embed=opts.embed)
 
     if opts.opf:
@@ -195,12 +206,16 @@ def polish_one(ebook, opts, report, customization=None):
         rt(_('Embedding referenced fonts'))
         if embed_all_fonts(ebook, stats, report):
             changed = True
+            has_subsettable_fonts = True
         report('')
 
     if opts.subset:
-        rt(_('Subsetting embedded fonts'))
-        if subset_all_fonts(ebook, stats.font_stats, report):
-            changed = True
+        if has_subsettable_fonts:
+            rt(_('Subsetting embedded fonts'))
+            if subset_all_fonts(ebook, stats.font_stats, report):
+                changed = True
+        else:
+            rt(_('No embedded fonts to subset'))
         report('')
 
     if opts.remove_unused_css:
@@ -216,6 +231,12 @@ def polish_one(ebook, opts, report, customization=None):
             changed = True
         report('')
 
+    if opts.upgrade_book:
+        rt(_('Upgrading book, if possible'))
+        if upgrade_book(ebook, report):
+            changed = True
+        report('')
+
     return changed
 
 
@@ -228,6 +249,7 @@ def polish(file_map, opts, log, report):
         ebook.commit(outbook)
         report('-'*70)
     report(_('Polishing took: %.1f seconds')%(time.time()-st))
+
 
 REPORT = '{0} REPORT {0}'.format('-'*30)
 
@@ -273,7 +295,7 @@ def option_parser():
     o('--embed-fonts', '-e', dest='embed', help=CLI_HELP['embed'])
     o('--subset-fonts', '-f', dest='subset', help=CLI_HELP['subset'])
     a('--cover', '-c', help=_(
-        'Path to a cover image. Changes the cover specified in the ebook. '
+        'Path to a cover image. Changes the cover specified in the e-book. '
         'If no cover is present, or the cover is not properly identified, inserts a new cover.'))
     a('--opf', '-o', help=_(
         'Path to an OPF file. The metadata in the book is updated from the OPF file.'))
@@ -282,6 +304,7 @@ def option_parser():
     o('--smarten-punctuation', '-p', help=CLI_HELP['smarten_punctuation'])
     o('--remove-unused-css', '-u', help=CLI_HELP['remove_unused_css'])
     o('--compress-images', '-i', help=CLI_HELP['compress_images'])
+    o('--upgrade-book', '-U', help=CLI_HELP['upgrade_book'])
 
     o('--verbose', help=_('Produce more verbose output, useful for debugging.'))
 
@@ -327,6 +350,6 @@ def main(args=None):
 
     log('Output written to:', outbook)
 
+
 if __name__ == '__main__':
     main()
-

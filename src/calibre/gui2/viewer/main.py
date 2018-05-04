@@ -10,8 +10,8 @@ from functools import partial
 from threading import Thread
 
 from PyQt5.Qt import (
-    QAction, QApplication, QByteArray, QIcon, QInputDialog, QModelIndex, QObject,
-    QPropertyAnimation, QSize, Qt, QTime, QTimer, pyqtSignal
+    QAction, QApplication, QByteArray, QIcon, QInputDialog, QMimeData, QModelIndex,
+    QObject, QPropertyAnimation, QSize, Qt, QTime, QTimer, pyqtSignal
 )
 
 from calibre import as_unicode, force_unicode, isbytestring, prints
@@ -21,8 +21,8 @@ from calibre.constants import (
 from calibre.customize.ui import available_input_formats
 from calibre.ebooks.oeb.iterator.book import EbookIterator
 from calibre.gui2 import (
-    Application, choose_files, error_dialog, info_dialog, open_url,
-    setup_gui_option_parser
+    Application, add_to_recent_docs, choose_files, error_dialog, info_dialog,
+    open_url, set_app_uid, setup_gui_option_parser
 )
 from calibre.gui2.viewer.toc import TOC
 from calibre.gui2.viewer.ui import Main as MainWindow
@@ -87,7 +87,7 @@ class Worker(Thread):
             self.exception = self.traceback = None
         except BadZipfile:
             self.exception = _(
-                'This ebook is corrupted and cannot be opened. If you '
+                'This e-book is corrupted and cannot be opened. If you '
                 'downloaded it from somewhere, try downloading it again.')
             self.traceback = ''
         except WorkerError as err:
@@ -174,7 +174,7 @@ class EbookViewer(MainWindow):
         self.pending_toc_click = None
         self.cursor_hidden     = False
         self.existing_bookmarks= []
-        self.selected_text     = None
+        self.selected_text     = self.selected_html = None
         self.was_maximized     = False
         self.read_settings()
         self.autosave_timer = t = QTimer(self)
@@ -354,6 +354,7 @@ class EbookViewer(MainWindow):
             for path in recent:
                 if os.path.exists(path):
                     self.load_ebook(path)
+                    break
 
     def shutdown(self):
         if self.isFullScreen() and not self.view.document.start_in_fullscreen:
@@ -417,6 +418,7 @@ class EbookViewer(MainWindow):
 
     def lookup(self, word):
         from urllib import quote
+        word = word.replace(u'\u00ad', '')
         word = quote(word.encode('utf-8'))
         lang = canonicalize_lang(self.view.current_language) or get_lang() or 'en'
         try:
@@ -569,13 +571,19 @@ class EbookViewer(MainWindow):
                 self.link_clicked(url)
         self.view.setFocus(Qt.OtherFocusReason)
 
-    def selection_changed(self, selected_text):
-        self.selected_text = selected_text.strip()
-        self.action_copy.setEnabled(bool(self.selected_text))
+    def selection_changed(self, selected_text, selected_html):
+        self.selected_text = selected_text
+        self.selected_html = selected_html
+        self.action_copy.setEnabled(bool(self.selected_text) or bool(self.selected_html))
 
-    def copy(self, x):
-        if self.selected_text:
-            QApplication.clipboard().setText(self.selected_text)
+    def copy(self, x=False):
+        if self.selected_text or self.selected_html:
+            md = QMimeData()
+            if self.selected_text:
+                md.setText(self.selected_text)
+            if self.selected_html:
+                md.setHtml(self.selected_html)
+            QApplication.clipboard().setMimeData(md)
 
     def back(self, x):
         pos = self.history.back(self.pos.value())
@@ -612,8 +620,8 @@ class EbookViewer(MainWindow):
 
     def open_ebook(self, checked):
         files = choose_files(self, 'ebook viewer open dialog',
-                     _('Choose ebook'),
-                     [(_('Ebooks'), available_input_formats())],
+                     _('Choose e-book'),
+                     [(_('E-books'), available_input_formats())],
                      all_files=False,
                      select_only_single_file=True)
         if files:
@@ -913,7 +921,7 @@ class EbookViewer(MainWindow):
         self.bookmarks_menu.clear()
         sc = _(' or ').join(self.view.shortcuts.get_shortcuts('Bookmark'))
         self.bookmarks_menu.addAction(_("Bookmark this location [%s]") % sc, self.bookmark)
-        self.bookmarks_menu.addAction(_("Show/hide Bookmarks"), self.bookmarks_dock.toggleViewAction().trigger)
+        self.bookmarks_menu.addAction(_("Show/hide bookmarks"), self.bookmarks_dock.toggleViewAction().trigger)
         self.bookmarks_menu.addSeparator()
         current_page = None
         self.existing_bookmarks = []
@@ -959,9 +967,9 @@ class EbookViewer(MainWindow):
         if self.iterator is not None:
             self.save_current_position()
             self.iterator.__exit__()
-        self.iterator = EbookIterator(pathtoebook, copy_bookmarks_to_file=self.view.document.copy_bookmarks_to_file)
+        self.iterator = EbookIterator(pathtoebook, copy_bookmarks_to_file=self.view.document.copy_bookmarks_to_file, use_tdir_in_cache=True)
         self.history.clear()
-        self.open_progress_indicator(_('Loading ebook...'))
+        self.open_progress_indicator(_('Loading e-book...'))
         worker = Worker(target=partial(self.iterator.__enter__, view_kepub=True))
         worker.path_to_ebook = pathtoebook
         worker.start()
@@ -976,7 +984,7 @@ class EbookViewer(MainWindow):
                 DRMErrorMessage(self).exec_()
             else:
                 r = getattr(worker.exception, 'reason', worker.exception)
-                error_dialog(self, _('Could not open ebook'),
+                error_dialog(self, _('Could not open e-book'),
                         as_unicode(r) or _('Unknown error'),
                         det_msg=tb, show=True)
             self.close_progress_indicator()
@@ -1007,8 +1015,7 @@ class EbookViewer(MainWindow):
             vprefs.set('viewer_open_history', vh[:50])
             if iswindows:
                 try:
-                    from win32com.shell import shell, shellcon
-                    shell.SHAddToRecentDocs(shellcon.SHARD_PATHW, pathtoebook)
+                    add_to_recent_docs(pathtoebook)
                 except Exception:
                     import traceback
                     traceback.print_exc()
@@ -1098,7 +1105,7 @@ class EbookViewer(MainWindow):
         action = {
             'Quit':self.action_quit,
             'Show metadata':self.action_metadata,
-            'Copy':self.view.copy_action,
+            'Copy':self.action_copy,
             'Font larger': self.action_font_size_larger,
             'Font smaller': self.action_font_size_smaller,
             'Fullscreen': self.action_full_screen,
@@ -1121,6 +1128,7 @@ class EbookViewer(MainWindow):
             if not self.tool_bar.isVisible():
                 self.toggle_toolbars()
             self.search.setFocus(Qt.OtherFocusReason)
+            self.search.lineEdit().selectAll()
             return
         if not self.view.handle_key_press(event):
             event.ignore()
@@ -1160,7 +1168,7 @@ class EbookViewer(MainWindow):
 
 
 def config(defaults=None):
-    desc = _('Options to control the ebook viewer')
+    desc = _('Options to control the e-book viewer')
     if defaults is None:
         c = Config('viewer', desc)
     else:
@@ -1192,7 +1200,7 @@ def option_parser():
     parser = c.option_parser(usage=_('''\
 %prog [options] file
 
-View an ebook.
+View an e-book.
 '''))
     setup_gui_option_parser(parser)
     return parser
@@ -1261,11 +1269,7 @@ def main(args=sys.argv):
         # Ensure that all ebook editor instances are grouped together in the task
         # bar. This prevents them from being grouped with viewer process when
         # launched from within calibre, as both use calibre-parallel.exe
-        import ctypes
-        try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(VIEWER_APP_UID)
-        except Exception:
-            pass  # Only available on windows 7 and newer
+        set_app_uid(VIEWER_APP_UID)
 
     parser = option_parser()
     opts, args = parser.parse_args(args)

@@ -149,6 +149,10 @@ class TestOPF3(unittest.TestCase):
         root = self.get_opf('''<dc:creator>a  b</dc:creator><dc:creator opf:role="aut">c d</dc:creator>''')
         self.ae([Author('c d', None)], rl(root))
         self.ae(authors, st(root, authors))
+        root = self.get_opf('''<dc:creator id="1">a  b</dc:creator>'''
+                            '''<meta refines="#1" property="role">aut</meta>'''
+                            '''<meta refines="#1" property="role">cow</meta>''')
+        self.ae([Author('a b', None)], rl(root))
     # }}}
 
     def test_book_producer(self):  # {{{
@@ -171,11 +175,13 @@ class TestOPF3(unittest.TestCase):
         from calibre.utils.date import utcnow
 
         def rl(root):
-            return read_pubdate(root, read_prefixes(root), read_refines(root)), read_timestamp(root, read_prefixes(root), read_refines(root))
+            p, r = read_prefixes(root), read_refines(root)
+            return read_pubdate(root, p, r), read_timestamp(root, p, r)
 
         def st(root, pd, ts):
-            set_pubdate(root, read_prefixes(root), read_refines(root), pd)
-            set_timestamp(root, read_prefixes(root), read_refines(root), ts)
+            p, r = read_prefixes(root), read_refines(root)
+            set_pubdate(root, p, r, pd)
+            set_timestamp(root, p, r, ts)
             return rl(root)
 
         def ae(root, y1=None, y2=None):
@@ -188,7 +194,8 @@ class TestOPF3(unittest.TestCase):
         root = self.get_opf('''<dc:date>1999-3-2</dc:date><meta property="calibre:timestamp" scheme="dcterms:W3CDTF">2001</meta>''')
         ae(root, 1999, 2001)
         n = utcnow()
-        self.ae(st(root, n, n), (n, n))
+        q = n.replace(microsecond=0)
+        self.ae(st(root, n, n), (n, q))
         root = self.get_opf('''<dc:date>1999-3-2</dc:date><meta name="calibre:timestamp" content="2001-1-1"/>''')
         ae(root, 1999, 2001)
         root = self.get_opf('''<meta property="dcterms:modified">2003</meta>''')
@@ -561,6 +568,7 @@ class TestRunner(unittest.main):
 
 def run(verbosity=4):
     TestRunner(verbosity=verbosity, exit=False)
+
 
 if __name__ == '__main__':
     run(verbosity=4)

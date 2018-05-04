@@ -63,10 +63,9 @@ def build_cache_dir():
     return ans
 
 
-def require_git_master():
-    if subprocess.check_output(['git', 'symbolic-ref', '--short', 'HEAD']).strip() != 'master':
-        print >>sys.stderr, 'You must be in the master git branch'
-        raise SystemExit(1)
+def require_git_master(branch='master'):
+    if subprocess.check_output(['git', 'symbolic-ref', '--short', 'HEAD']).strip() != branch:
+        raise SystemExit('You must be in the {} got branch'.format(branch))
 
 
 def require_clean_git():
@@ -165,6 +164,12 @@ warnings = []
 
 def get_warnings():
     return list(warnings)
+
+
+def edit_file(path):
+    return subprocess.Popen([
+        'vim', '-c', 'SyntasticCheck', '-c', 'll', '-S', os.path.join(SRC, '../session.vim'), '-f', path
+    ]).wait() == 0
 
 
 class Command(object):

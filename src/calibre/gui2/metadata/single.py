@@ -9,10 +9,11 @@ __docformat__ = 'restructuredtext en'
 
 import os, errno
 from datetime import datetime
+from functools import partial
 
 from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
         QGridLayout, pyqtSignal, QDialogButtonBox, QScrollArea, QFont, QCoreApplication,
-        QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem,
+        QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem, QInputDialog,
         QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut, QDialog)
 
 from calibre.constants import isosx
@@ -80,11 +81,11 @@ class MetadataSingleDialogBase(QDialog):
         self.button_box = bb = QDialogButtonBox(self)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.next_button = QPushButton(QIcon(I('forward.png')), _('Next'),
+        self.next_button = QPushButton(QIcon(I('forward.png')), _('&Next'),
                 self)
         self.next_button.setShortcut(QKeySequence('Alt+Right'))
         self.next_button.clicked.connect(self.next_clicked)
-        self.prev_button = QPushButton(QIcon(I('back.png')), _('Previous'),
+        self.prev_button = QPushButton(QIcon(I('back.png')), _('&Previous'),
                 self)
         self.prev_button.setShortcut(QKeySequence('Alt+Left'))
 
@@ -227,7 +228,7 @@ class MetadataSingleDialogBase(QDialog):
 
         self.tags = TagsEdit(self)
         self.tags_editor_button = QToolButton(self)
-        self.tags_editor_button.setToolTip(_('Open Tag Editor'))
+        self.tags_editor_button.setToolTip(_('Open Tag editor'))
         self.tags_editor_button.setIcon(QIcon(I('chapters.png')))
         self.tags_editor_button.clicked.connect(self.tags_editor)
         self.clear_tags_button = QToolButton(self)
@@ -242,12 +243,16 @@ class MetadataSingleDialogBase(QDialog):
         self.clear_identifiers_button.setIcon(QIcon(I('trash.png')))
         self.clear_identifiers_button.setToolTip(_('Clear Ids'))
         self.clear_identifiers_button.clicked.connect(self.identifiers.clear)
-        self.paste_isbn_button = QToolButton(self)
-        self.paste_isbn_button.setToolTip('<p>' +
+        self.paste_isbn_button = b = RightClickButton(self)
+        b.setToolTip('<p>' +
                     _('Paste the contents of the clipboard into the '
-                      'identifiers box prefixed with isbn:') + '</p>')
-        self.paste_isbn_button.setIcon(QIcon(I('edit-paste.png')))
-        self.paste_isbn_button.clicked.connect(self.identifiers.paste_isbn)
+                      'identifiers prefixed with isbn:. Or right click, '
+                      'to choose a different prefix.') + '</p>')
+        b.setIcon(QIcon(I('edit-paste.png')))
+        b.clicked.connect(self.identifiers.paste_identifier)
+        b.setPopupMode(b.DelayedPopup)
+        b.setMenu(QMenu())
+        self.update_paste_identifiers_menu()
 
         self.publisher = PublisherEdit(self)
         self.basic_metadata_widgets.append(self.publisher)
@@ -289,6 +294,22 @@ class MetadataSingleDialogBase(QDialog):
             _('Change how calibre downloads metadata'))
 
     # }}}
+
+    def update_paste_identifiers_menu(self):
+        m = self.paste_isbn_button.menu()
+        m.clear()
+        m.addAction(_('Edit list of prefixes'), self.edit_prefix_list)
+        m.addSeparator()
+        for prefix in gprefs['paste_isbn_prefixes'][1:]:
+            m.addAction(prefix, partial(self.identifiers.paste_prefix, prefix))
+
+    def edit_prefix_list(self):
+        prefixes, ok = QInputDialog.getMultiLineText(
+            self, _('Edit prefixes'), _('Enter prefixes, one on a line. The first prefix becomes the default.'),
+            '\n'.join(list(map(type(u''), gprefs['paste_isbn_prefixes']))))
+        if ok:
+            gprefs['paste_isbn_prefixes'] = list(filter(None, (x.strip() for x in prefixes.splitlines()))) or gprefs.defaults['paste_isbn_prefixes']
+            self.update_paste_identifiers_menu()
 
     def create_custom_metadata_widgets(self):  # {{{
         self.custom_metadata_widgets_parent = w = QWidget(self)
@@ -589,8 +610,8 @@ class MetadataSingleDialogBase(QDialog):
                           'There are still {} more books to edit in this set.', num).format(num)
             if not question_dialog(
                     self, _('Are you sure?'), pm + _(
-                      ' Are you sure you want to stop? Use the Next button'
-                      ' instead of the OK button to move through books in the set.'),
+                      ' Are you sure you want to stop? Use the "Next" button'
+                      ' instead of the "OK" button to move through books in the set.'),
                     yes_text=_('&Stop editing'), no_text=_('&Continue editing'),
                     yes_icon='dot_red.png', no_icon='dot_green.png',
                     default_yes=False, skip_dialog_name='edit-metadata-single-confirm-ok-on-multiple'):
@@ -739,14 +760,14 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         tl.addWidget(self.swap_title_author_button, 0, 0, 1, 1)
         tl.addWidget(self.manage_authors_button, 1, 0, 1, 1)
 
+        sto(self.swap_title_author_button, self.title)
         create_row(0, self.title, self.deduce_title_sort_button, self.title_sort)
-        sto(self.title_sort, self.authors)
+        sto(self.title_sort, self.manage_authors_button)
+        sto(self.manage_authors_button, self.authors)
         create_row(1, self.authors, self.deduce_author_sort_button, self.author_sort)
         sto(self.author_sort, self.series)
         create_row(2, self.series, self.clear_series_button,
                 self.series_index, icon='trash.png')
-        sto(self.series_index, self.swap_title_author_button)
-        sto(self.swap_title_author_button, self.manage_authors_button)
 
         tl.addWidget(self.formats_manager, 0, 6, 3, 1)
 
@@ -757,7 +778,6 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         self.tabs[0].gb = gb = QGroupBox(_('Change cover'), self)
         gb.l = l = QGridLayout()
         gb.setLayout(l)
-        sto(self.manage_authors_button, self.cover.buttons[0])
         for i, b in enumerate(self.cover.buttons[:3]):
             l.addWidget(b, 0, i, 1, 1)
             sto(b, self.cover.buttons[i+1])
@@ -815,7 +835,7 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         l.addWidget(self.fetch_metadata_button, 10, 0, 1, 2)
         l.addWidget(self.config_metadata_button, 10, 2, 1, 1)
 
-        self.tabs[0].gb2 = gb = QGroupBox(_('Co&mments'), self)
+        self.tabs[0].gb2 = gb = QGroupBox(_('Comments'), self)
         gb.l = l = QVBoxLayout()
         gb.setLayout(l)
         l.addWidget(self.comments)

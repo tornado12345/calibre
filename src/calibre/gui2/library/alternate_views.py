@@ -23,9 +23,11 @@ from PyQt5.Qt import (
 
 from calibre import fit_image, prints, prepare_string_for_xml, human_readable
 from calibre.constants import DEBUG, config_dir, islinux
+from calibre.gui2.pin_columns import PinContainer
 from calibre.ebooks.metadata import fmt_sidx, rating_to_stars
 from calibre.utils import join_with_timeout
 from calibre.gui2 import gprefs, config, rating_font, empty_index
+from calibre.gui2.gestures import GestureManager
 from calibre.gui2.library.caches import CoverCache, ThumbnailCache
 from calibre.utils.config import prefs, tweaks
 
@@ -39,6 +41,32 @@ def auto_height(widget):
 
 class EncodeError(ValueError):
     pass
+
+
+def handle_enter_press(self, ev, special_action=None, has_edit_cell=True):
+    if ev.key() in (Qt.Key_Enter, Qt.Key_Return):
+        mods = ev.modifiers()
+        if mods & Qt.CTRL or mods & Qt.ALT or mods & Qt.SHIFT or mods & Qt.META:
+            return
+        if self.state() != self.EditingState and self.hasFocus() and self.currentIndex().isValid():
+            from calibre.gui2.ui import get_gui
+            ev.ignore()
+            tweak = tweaks['enter_key_behavior']
+            gui = get_gui()
+            if tweak == 'edit_cell':
+                if has_edit_cell:
+                    self.edit(self.currentIndex(), self.EditKeyPressed, ev)
+                else:
+                    gui.iactions['Edit Metadata'].edit_metadata(False)
+            elif tweak == 'edit_metadata':
+                gui.iactions['Edit Metadata'].edit_metadata(False)
+            elif tweak == 'do_nothing':
+                pass
+            else:
+                if special_action is not None:
+                    special_action(self.currentIndex())
+                gui.iactions['View'].view_triggered(self.currentIndex())
+            return True
 
 
 def image_to_data(image):  # {{{
@@ -249,7 +277,9 @@ class AlternateViews(object):
 
     def set_stack(self, stack):
         self.stack = stack
-        self.stack.addWidget(self.main_view)
+        pin_container = PinContainer(self.main_view, stack)
+        self.stack.addWidget(pin_container)
+        return pin_container
 
     def add_view(self, key, view):
         self.views[key] = view
@@ -624,8 +654,8 @@ class CoverDelegate(QStyledItemDelegate):
 
 # }}}
 
-# The View {{{
 
+# The View {{{
 
 @setup_dnd_interface
 class GridView(QListView):
@@ -635,6 +665,8 @@ class GridView(QListView):
 
     def __init__(self, parent):
         QListView.__init__(self, parent)
+        self._ncols = None
+        self.gesture_manager = GestureManager(self)
         setup_dnd_interface(self)
         self.setUniformItemSizes(True)
         self.setWrapping(True)
@@ -650,7 +682,6 @@ class GridView(QListView):
         self.delegate.animation.finished.connect(self.animation_done)
         self.setItemDelegate(self.delegate)
         self.setSpacing(self.delegate.spacing)
-        self.padding_left = 0
         self.set_color()
         self.ignore_render_requests = Event()
         dpr = self.device_pixel_ratio
@@ -669,6 +700,15 @@ class GridView(QListView):
         self.resize_timer = t = QTimer(self)
         t.setInterval(200), t.setSingleShot(True)
         t.timeout.connect(self.update_memory_cover_cache_size)
+
+    def viewportEvent(self, ev):
+        try:
+            ret = self.gesture_manager.handle_event(ev)
+        except AttributeError:
+            ret = None
+        if ret is not None:
+            return ret
+        return QListView.viewportEvent(self, ev)
 
     @property
     def device_pixel_ratio(self):
@@ -703,11 +743,14 @@ class GridView(QListView):
         for r in xrange(self.first_visible_row or 0, self.last_visible_row or (m.count() - 1)):
             self.update(m.index(r, 0))
 
-    def double_clicked(self, index):
+    def start_view_animation(self, index):
         d = self.delegate
         if d.animating is None and not config['disable_animations']:
             d.animating = index
             d.animation.start()
+
+    def double_clicked(self, index):
+        self.start_view_animation(index)
         if tweaks['doubleclick_on_library_view'] == 'open_viewer':
             self.gui.iactions['View'].view_triggered(index)
         elif tweaks['doubleclick_on_library_view'] in {'edit_metadata', 'edit_cell'}:
@@ -769,6 +812,7 @@ class GridView(QListView):
         self.update_memory_cover_cache_size()
 
     def resizeEvent(self, ev):
+        self._ncols = None
         self.resize_timer.start()
         return QListView.resizeEvent(self, ev)
 
@@ -972,6 +1016,48 @@ class GridView(QListView):
         else:
             return QListView.mousePressEvent(self, ev)
 
+    def number_of_columns(self):
+        # Number of columns currently visible in the grid
+        if self._ncols is None:
+            step = max(10, self.spacing())
+            for y in range(step, 500, step):
+                for x in range(step, 500, step):
+                    i = self.indexAt(QPoint(x, y))
+                    if i.isValid():
+                        for x in range(self.viewport().width() - step, self.viewport().width() - 300, -step):
+                            j = self.indexAt(QPoint(x, y))
+                            if j.isValid():
+                                self._ncols = j.row() - i.row() + 1
+                                return self._ncols
+        return self._ncols
+
+    def keyPressEvent(self, ev):
+        if handle_enter_press(self, ev, self.start_view_animation, False):
+            return
+        k = ev.key()
+        if ev.modifiers() & Qt.ShiftModifier and k in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+            ci = self.currentIndex()
+            if not ci.isValid():
+                return
+            c = ci.row()
+            delta = {Qt.Key_Left: -1, Qt.Key_Right: 1, Qt.Key_Up: -self.number_of_columns(), Qt.Key_Down: self.number_of_columns()}[k]
+            n = max(0, min(c + delta, self.model().rowCount(None) - 1))
+            if n == c:
+                return
+            sm = self.selectionModel()
+            rows = {i.row() for i in sm.selectedIndexes()}
+            if rows:
+                mi, ma = min(rows), max(rows)
+                end = mi if c == ma else ma if c == mi else c
+            else:
+                end = c
+            top = self.model().index(min(n, end), 0)
+            bottom = self.model().index(max(n, end), 0)
+            sm.select(QItemSelection(top, bottom), sm.ClearAndSelect)
+            sm.setCurrentIndex(self.model().index(n, 0), sm.NoUpdate)
+        else:
+            return QListView.keyPressEvent(self, ev)
+
     @property
     def current_book(self):
         ci = self.currentIndex()
@@ -1021,12 +1107,12 @@ class GridView(QListView):
 
     def wheelEvent(self, ev):
         if ev.phase() not in (Qt.ScrollUpdate, 0):
-            # 0 is Qt.NoScrollPhase which is not yet available in PyQt
             return
         number_of_pixels = ev.pixelDelta()
-        number_of_degrees = ev.angleDelta() / 8
+        number_of_degrees = ev.angleDelta() / 8.0
         b = self.verticalScrollBar()
-        if number_of_pixels.isNull():
+        if number_of_pixels.isNull() or islinux:
+            # pixelDelta() is broken on linux with wheel mice
             dy = number_of_degrees.y() / 15.0
             # Scroll by approximately half a row
             dy = int(math.ceil((dy) * b.singleStep() / 2.0))

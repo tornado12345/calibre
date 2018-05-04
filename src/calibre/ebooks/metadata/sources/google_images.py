@@ -9,9 +9,19 @@ __docformat__ = 'restructuredtext en'
 
 from collections import OrderedDict
 
+from calibre import random_user_agent
 from calibre.ebooks.metadata.sources.base import Source, Option
 
-USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:45.0) Gecko/20100101 Firefox/45.0'
+
+def parse_html(raw):
+    try:
+        from html5_parser import parse
+    except ImportError:
+        # Old versions of calibre
+        import html5lib
+        return html5lib.parse(raw, treebuilder='lxml', namespaceHTMLElements=False)
+    else:
+        return parse(raw)
 
 
 class GoogleImages(Source):
@@ -21,11 +31,10 @@ class GoogleImages(Source):
     minimum_calibre_version = (2, 80, 0)
     description = _('Downloads covers from a Google Image search. Useful to find larger/alternate covers.')
     capabilities = frozenset(['cover'])
-    config_help_message = _('Configure the Google Image Search plugin')
     can_get_multiple_covers = True
     supports_gzip_transfer_encoding = True
     options = (Option('max_covers', 'number', 5, _('Maximum number of covers to get'),
-                      _('The maximum number of covers to process from the google search result')),
+                      _('The maximum number of covers to process from the Google search result')),
                Option('size', 'choices', 'svga', _('Cover size'),
                       _('Search for covers larger than the specified size'),
                       choices=OrderedDict((
@@ -52,12 +61,11 @@ class GoogleImages(Source):
 
     @property
     def user_agent(self):
-        return USER_AGENT
+        return random_user_agent(allow_ie=False)
 
     def get_image_urls(self, title, author, log, abort, timeout):
         from calibre.utils.cleantext import clean_ascii_chars
         from urllib import urlencode
-        import html5lib
         import json
         from collections import OrderedDict
         ans = OrderedDict()
@@ -74,9 +82,9 @@ class GoogleImages(Source):
         # URL scheme
         url = 'https://www.google.com/search?as_st=y&tbm=isch&{}&as_epq=&as_oq=&as_eq=&cr=&as_sitesearch=&safe=images&tbs={}iar:t,ift:jpg'.format(q, sz)
         log('Search URL: ' + url)
-        raw = br.open(url).read().decode('utf-8')
-        root = html5lib.parse(clean_ascii_chars(raw), treebuilder='lxml', namespaceHTMLElements=False)
-        for div in root.xpath('//div[@class="rg_meta"]'):
+        raw = clean_ascii_chars(br.open(url).read().decode('utf-8'))
+        root = parse_html(raw)
+        for div in root.xpath('//div[@class="rg_meta notranslate"]'):
             try:
                 data = json.loads(div.text)
             except Exception:

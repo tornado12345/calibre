@@ -93,7 +93,7 @@ class ChooseLibrary(QDialog, Ui_Dialog):
             aloc = os.path.normcase(os.path.abspath(loc))
             if (aloc.startswith(cal+os.sep) or aloc == cal):
                 error_dialog(self, _('Bad location'),
-                    _('You should not create a library inside the Calibre'
+                    _('You should not create a library inside the calibre'
                         ' folder as this folder is automatically deleted during upgrades.'),
                     show=True)
                 return False
@@ -180,8 +180,11 @@ class ChooseLibrary(QDialog, Ui_Dialog):
                 if e.errno != errno.EEXIST:
                     raise
         if not loc or not os.path.exists(loc) or not os.path.isdir(loc):
-            return error_dialog(self, _('Bad location'),
-                    _('%s is not an existing folder')%loc, show=True)
+            if action == 'new' and not os.path.exists(loc):
+                os.makedirs(loc)
+            else:
+                return error_dialog(self, _('Bad location'),
+                        _('%s is not an existing folder')%loc, show=True)
         if not self.check_action(action, loc):
             return
         self.location.save_history()
