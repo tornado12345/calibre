@@ -149,6 +149,7 @@ class TagsView(QTreeView):  # {{{
         self.setAutoExpandDelay(500)
         self.pane_is_visible = False
         self.search_icon = QIcon(I('search.png'))
+        self.search_copy_icon = QIcon(I("search_copy_saved.png"))
         self.user_category_icon = QIcon(I('tb_folder.png'))
         self.delete_icon = QIcon(I('list_remove.png'))
         self.rename_icon = QIcon(I('edit-undo.png'))
@@ -216,8 +217,8 @@ class TagsView(QTreeView):  # {{{
         hide_empty_categories = self.model().prefs['tag_browser_hide_empty_categories']
         crmap = self._model.category_row_map()
         for category in self._model.category_nodes:
-            if (category.category_key in self.hidden_categories or
-                    (hide_empty_categories and len(category.child_tags()) == 0)):
+            if (category.category_key in self.hidden_categories or (
+                hide_empty_categories and len(category.child_tags()) == 0)):
                 continue
             row = crmap.get(category.category_key)
             if row is not None:
@@ -270,8 +271,7 @@ class TagsView(QTreeView):  # {{{
 
     @property
     def match_all(self):
-        return (self.alter_tb and
-                self.alter_tb.match_menu.actions()[1].isChecked())
+        return (self.alter_tb and self.alter_tb.match_menu.actions()[1].isChecked())
 
     def sort_changed(self, action):
         for i, ac in enumerate(self.alter_tb.sort_menu.actions()):
@@ -374,8 +374,7 @@ class TagsView(QTreeView):  # {{{
                         d = os.path.join(config_dir, 'tb_icons')
                         if not os.path.exists(d):
                             os.makedirs(d)
-                        with open(os.path.join(d, 'icon_'+
-                            sanitize_file_name_unicode(key)+'.png'), 'wb') as f:
+                        with open(os.path.join(d, 'icon_' + sanitize_file_name_unicode(key)+'.png'), 'wb') as f:
                             f.write(pixmap_to_data(p, format='PNG'))
                             path = os.path.basename(f.name)
                         self._model.set_custom_category_icon(key, unicode(path))
@@ -414,6 +413,10 @@ class TagsView(QTreeView):  # {{{
                 return
             if action == 'search':
                 self._toggle(index, set_to=search_state)
+                return
+            if action == "raw_search":
+                from calibre.gui2.ui import get_gui
+                get_gui().get_saved_search_text(search_name='search:' + key)
                 return
             if action == 'add_to_category':
                 tag = index.tag
@@ -591,6 +594,11 @@ class TagsView(QTreeView):  # {{{
                                 partial(self.context_menu_handler, action='search',
                                         search_state=TAG_SEARCH_STATES['mark_minus'],
                                         index=index))
+                        self.context_menu.addAction(self.search_copy_icon,
+                                _('Search using saved search expression'),
+                                partial(self.context_menu_handler, action='raw_search',
+                                        key=tag.name))
+
                     self.context_menu.addSeparator()
                 elif key.startswith('@') and not item.is_gst:
                     if item.can_be_edited:
@@ -635,9 +643,8 @@ class TagsView(QTreeView):  # {{{
                                     search_state=TAG_SEARCH_STATES['mark_minus']))
                 # Offer specific editors for tags/series/publishers/saved searches
                 self.context_menu.addSeparator()
-                if key in ['tags', 'publisher', 'series'] or \
-                            (self.db.field_metadata[key]['is_custom'] and
-                             self.db.field_metadata[key]['datatype'] != 'composite'):
+                if key in ['tags', 'publisher', 'series'] or (
+                        self.db.field_metadata[key]['is_custom'] and self.db.field_metadata[key]['datatype'] != 'composite'):
                     self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='open_editor',
                                     category=tag.original_name if tag else None,
@@ -650,11 +657,12 @@ class TagsView(QTreeView):  # {{{
                         partial(self.context_menu_handler, action='manage_searches',
                                 category=tag.name if tag else None))
 
-                self.context_menu.addSeparator()
-                self.context_menu.addAction(_('Change category icon'),
-                        partial(self.context_menu_handler, action='set_icon', key=key))
-                self.context_menu.addAction(_('Restore default icon'),
-                        partial(self.context_menu_handler, action='clear_icon', key=key))
+                if tag is None:
+                    self.context_menu.addSeparator()
+                    self.context_menu.addAction(_('Change category icon'),
+                            partial(self.context_menu_handler, action='set_icon', key=key))
+                    self.context_menu.addAction(_('Restore default icon'),
+                            partial(self.context_menu_handler, action='clear_icon', key=key))
 
                 # Always show the User categories editor
                 self.context_menu.addSeparator()
@@ -755,10 +763,8 @@ class TagsView(QTreeView):  # {{{
                     fm_src = self.db.metadata_for_field(md.column_name)
                     if md.column_name in ['authors', 'publisher', 'series'] or \
                             (fm_src['is_custom'] and (
-                             (fm_src['datatype'] in ['series', 'text', 'enumeration'] and
-                              not fm_src['is_multiple']) or
-                             (fm_src['datatype'] == 'composite' and
-                              fm_src['display'].get('make_category', False)))):
+                             (fm_src['datatype'] in ['series', 'text', 'enumeration'] and not fm_src['is_multiple']) or (
+                                 fm_src['datatype'] == 'composite' and fm_src['display'].get('make_category', False)))):
                         self.setDropIndicatorShown(True)
 
     def clear(self):

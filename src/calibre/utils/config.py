@@ -1,4 +1,5 @@
 from __future__ import with_statement
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -221,7 +222,7 @@ class DynamicConfig(dict):
                 except SystemError:
                     pass
                 except:
-                    print 'WARNING: Failed to unpickle stored config object, ignoring'
+                    print('WARNING: Failed to unpickle stored config object, ignoring')
                     if DEBUG:
                         import traceback
                         traceback.print_exc()
@@ -411,7 +412,7 @@ class JSONConfig(XMLConfig):
         return json.loads(raw.decode('utf-8'), object_hook=from_json)
 
     def to_raw(self):
-        return json.dumps(self, indent=2, default=to_json)
+        return json.dumps(self, indent=2, default=to_json, sort_keys=True)
 
     def __getitem__(self, key):
         try:

@@ -1,4 +1,5 @@
 #!/usr/bin/env  python2
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -94,7 +95,11 @@ Everything after the -- is passed to the script.
         ' been created by a previous call to --explode-book. Be sure to'
         ' specify the same file type as was used when exploding.'))
     parser.add_option('--export-all-calibre-data', default=False, action='store_true',
-        help=_('Export all calibre data (books/settings/plugins)'))
+        help=_('Export all calibre data (books/settings/plugins). Normally, you will'
+            ' be asked for the export dir and the libraries to export. You can also specify them'
+            ' as command line arguments to skip the questions.'
+            ' Use absolute paths for the export directory and libraries.'
+            ' The special keyword "all" can be used to export all libraries.'))
     parser.add_option('--import-calibre-data', default=False, action='store_true',
         help=_('Import previously exported calibre data'))
     parser.add_option('-s', '--shutdown-running-calibre', default=False,
@@ -226,12 +231,15 @@ def run_debug_gui(logpath):
     calibre(['__CALIBRE_GUI_DEBUG__', logpath])
 
 
-def run_script(path, args):
+def load_user_plugins():
     # Load all user defined plugins so the script can import from the
     # calibre_plugins namespace
     import calibre.customize.ui as dummy
-    dummy
+    return dummy
 
+
+def run_script(path, args):
+    load_user_plugins()
     sys.argv = [path] + args
     ef = os.path.abspath(path)
     if '/src/calibre/' not in ef.replace(os.pathsep, '/'):
@@ -247,7 +255,7 @@ def inspect_mobi(path):
     from calibre.ebooks.mobi.debug.main import inspect_mobi
     prints('Inspecting:', path)
     inspect_mobi(path)
-    print
+    print()
 
 
 def main(args=sys.argv):
@@ -318,11 +326,12 @@ def main(args=sys.argv):
             from calibre.utils.winreg.default_programs import register as func
         else:
             from calibre.utils.winreg.default_programs import unregister as func
-        print 'Running', func.__name__, '...'
+        print('Running', func.__name__, '...')
         func()
     elif opts.export_all_calibre_data:
+        args = args[1:]
         from calibre.utils.exim import run_exporter
-        run_exporter()
+        run_exporter(args=args)
     elif opts.import_calibre_data:
         from calibre.utils.exim import run_importer
         run_importer()
@@ -342,6 +351,7 @@ def main(args=sys.argv):
         sys.path.insert(0, args[1])
         run_script(os.path.join(args[1], '__main__.py'), args[2:])
     else:
+        load_user_plugins()
         from calibre import ipython
         ipython()
 

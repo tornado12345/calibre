@@ -1,13 +1,14 @@
 #!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import itertools, operator
 from functools import partial
-from future_builtins import map
+from polyglot.builtins import map
 from collections import OrderedDict
 
 from PyQt5.Qt import (
@@ -29,6 +30,7 @@ from calibre.gui2 import error_dialog, gprefs, FunctionDispatcher
 from calibre.gui2.library import DEFAULT_SORT
 from calibre.constants import filesystem_encoding
 from calibre import force_unicode
+from calibre.utils.icu import primary_sort_key
 
 
 def restrict_column_width(self, col, old_size, new_size):
@@ -121,8 +123,8 @@ class HeaderView(QHeaderView):  # {{{
 
         painter.save()
         if (
-                (opt.orientation == Qt.Horizontal and sm.currentIndex().column() == logical_index) or
-                (opt.orientation == Qt.Vertical and sm.currentIndex().row() == logical_index)):
+                (opt.orientation == Qt.Horizontal and sm.currentIndex().column() == logical_index) or (
+                    opt.orientation == Qt.Vertical and sm.currentIndex().row() == logical_index)):
             painter.setFont(self.current_font)
         self.style().drawControl(QStyle.CE_Header, opt, painter, self)
         painter.restore()
@@ -204,6 +206,7 @@ class PreserveViewState(object):  # {{{
 class BooksView(QTableView):  # {{{
 
     files_dropped = pyqtSignal(object)
+    books_dropped = pyqtSignal(object)
     add_column_signal = pyqtSignal()
     is_library_view = True
 
@@ -252,8 +255,8 @@ class BooksView(QTableView):  # {{{
         setup_dnd_interface(self)
         for wv in self, self.pin_view:
             wv.setAlternatingRowColors(True)
-            wv.setShowGrid(False)
             wv.setWordWrap(False)
+        self.refresh_grid()
 
         self.rating_delegate = RatingDelegate(self)
         self.half_rating_delegate = RatingDelegate(self, is_half_star=True)
@@ -346,9 +349,12 @@ class BooksView(QTableView):  # {{{
             dest.selectionModel().select(src.selectionModel().selection(), QItemSelectionModel.ClearAndSelect)
             ci = dest.currentIndex()
             nci = src.selectionModel().currentIndex()
+            # Save/restore horz scroll.  ci column may be scrolled out of view.
+            hpos = dest.horizontalScrollBar().value()
             if ci.isValid():
                 nci = dest.model().index(nci.row(), ci.column())
             dest.selectionModel().setCurrentIndex(nci, QItemSelectionModel.NoUpdate)
+            dest.horizontalScrollBar().setValue(hpos)
             self.allow_mirroring = True
 
     def mirror_vscroll(self, src, *a):
@@ -398,6 +404,8 @@ class BooksView(QTableView):  # {{{
         elif action.startswith('align_'):
             alignment = action.partition('_')[-1]
             self._model.change_alignment(column, alignment)
+        elif action.startswith('font_'):
+            self._model.change_column_font(column, action[len('font_'):])
         elif action == 'quickview':
             from calibre.gui2.actions.show_quickview import get_quickview_action_plugin
             qv = get_quickview_action_plugin()
@@ -424,9 +432,7 @@ class BooksView(QTableView):  # {{{
             ac.setCheckable(True)
             ac.setChecked(True)
         if col not in ('ondevice', 'inlibrary') and \
-                (not self.model().is_custom_column(col) or
-                self.model().custom_columns[col]['datatype'] not in ('bool',
-                    )):
+                (not self.model().is_custom_column(col) or self.model().custom_columns[col]['datatype'] not in ('bool',)):
             m = ans.addMenu(_('Change text alignment for %s') % name)
             al = self._model.alignment_map.get(col, 'left')
             for x, t in (('left', _('Left')), ('right', _('Right')), ('center', _('Center'))):
@@ -434,6 +440,18 @@ class BooksView(QTableView):  # {{{
                     if al == x:
                         a.setCheckable(True)
                         a.setChecked(True)
+            if not isinstance(view, DeviceBooksView):
+                col_font = self._model.styled_columns.get(col)
+                m = ans.addMenu(_('Change font style for %s') % name)
+                for x, t, f in (
+                        ('normal', _('Normal font'), None), ('bold', _('Bold font'), self._model.bold_font),
+                        ('italic', _('Italic font'), self._model.italic_font), ('bi', _('Bold and Italic font'), self._model.bi_font),
+                ):
+                    a = m.addAction(t, partial(handler, action='font_' + x))
+                    if f is col_font:
+                        a.setCheckable(True)
+                        a.setChecked(True)
+
         if self.is_library_view:
             if self._model.db.field_metadata[col]['is_category']:
                 act = ans.addAction(_('Quickview column %s') % name, partial(handler, action='quickview'))
@@ -447,8 +465,9 @@ class BooksView(QTableView):  # {{{
         ans.addSeparator()
         if hidden_cols:
             m = ans.addMenu(_('Show column'))
-            for hcol, hidx in hidden_cols.iteritems():
-                hname = unicode(self.model().headerData(hidx, Qt.Horizontal, Qt.DisplayRole) or '')
+            hcols = [(hcol, unicode(self.model().headerData(hidx, Qt.Horizontal, Qt.DisplayRole) or '')) for hcol, hidx in hidden_cols.iteritems()]
+            hcols.sort(key=lambda x: primary_sort_key(x[1]))
+            for hcol, hname in hcols:
                 m.addAction(hname, partial(handler, action='show', column=hcol))
         ans.addSeparator()
         ans.addAction(_('Shrink column if it is too wide to fit'),
@@ -467,12 +486,18 @@ class BooksView(QTableView):  # {{{
             col = self.column_map[idx]
             name = unicode(self.model().headerData(idx, Qt.Horizontal, Qt.DisplayRole) or '')
             view.column_header_context_menu = self.create_context_menu(col, name, view)
-        if self.is_library_view:
+        has_context_menu = hasattr(view, 'column_header_context_menu')
+        if self.is_library_view and has_context_menu:
             view.column_header_context_menu.addSeparator()
-            view.column_header_context_menu.addAction(
-                _('Un-split the book list') if self.pin_view.isVisible() else _('Split the book list'),
-                partial(self.column_header_context_handler, action='split', column=col or 'title'))
-        if hasattr(view, 'column_header_context_menu'):
+            if not hasattr(view.column_header_context_menu, 'bl_split_action'):
+                view.column_header_context_menu.bl_split_action = view.column_header_context_menu.addAction(
+                        'xxx', partial(self.column_header_context_handler, action='split', column='title'))
+            ac = view.column_header_context_menu.bl_split_action
+            if self.pin_view.isVisible():
+                ac.setText(_('Un-split the book list'))
+            else:
+                ac.setText(_('Split the book list'))
+        if has_context_menu:
             view.column_header_context_menu.popup(view.column_header.mapToGlobal(pos))
     # }}}
 
@@ -630,7 +655,10 @@ class BooksView(QTableView):  # {{{
         if self.is_library_view:
             for col, order in reversed(self.cleanup_sort_history(
                     saved_history, ignore_column_map=True)[:max_sort_levels]):
-                self.sort_by_named_field(col, order)
+                try:
+                    self.sort_by_named_field(col, order)
+                except KeyError:
+                    pass
         else:
             for col, order in reversed(self.cleanup_sort_history(
                     saved_history)[:max_sort_levels]):
@@ -780,6 +808,10 @@ class BooksView(QTableView):  # {{{
     def refresh_row_sizing(self):
         self.row_sizing_done = False
         self.do_row_sizing()
+
+    def refresh_grid(self):
+        for wv in self, self.pin_view:
+            wv.setShowGrid(bool(gprefs['booklist_grid']))
 
     def do_row_sizing(self):
         # Resize all rows to have the correct height
@@ -946,6 +978,11 @@ class BooksView(QTableView):  # {{{
             return True
         return False
 
+    def indices_for_merge(self, resolved=False):
+        if not resolved:
+            return self.alternate_views.current_view.indices_for_merge(resolved=True)
+        return self.selectionModel().selectedRows()
+
     def scrollContentsBy(self, dx, dy):
         # Needed as Qt bug causes headerview to not always update when scrolling
         QTableView.scrollContentsBy(self, dx, dy)
@@ -1085,8 +1122,8 @@ class BooksView(QTableView):  # {{{
         Select rows identified by identifiers. identifiers can be a set of ids,
         row numbers or QModelIndexes.
         '''
-        rows = set([x.row() if hasattr(x, 'row') else x for x in
-            identifiers])
+        rows = {x.row() if hasattr(x, 'row') else x for x in
+            identifiers}
         if using_ids:
             rows = set([])
             identifiers = set(identifiers)
@@ -1108,7 +1145,7 @@ class BooksView(QTableView):  # {{{
         # Create a range based selector for each set of contiguous rows
         # as supplying selectors for each individual row causes very poor
         # performance if a large number of rows has to be selected.
-        for k, g in itertools.groupby(enumerate(rows), lambda (i,x):i-x):
+        for k, g in itertools.groupby(enumerate(rows), lambda i_x:i_x[0]-i_x[1]):
             group = list(map(operator.itemgetter(1), g))
             sel.merge(QItemSelection(m.index(min(group), 0),
                 m.index(max(group), max_col)), sm.Select)
@@ -1255,8 +1292,7 @@ class DeviceBooksView(BooksView):  # {{{
         md.setUrls([QUrl.fromLocalFile(p) for p in paths])
         drag = QDrag(self)
         drag.setMimeData(md)
-        cover = self.drag_icon(m.cover(self.currentIndex().row()), len(paths) >
-                1)
+        cover = self.drag_icon(m.cover(self.currentIndex().row()), len(paths) > 1)
         drag.setHotSpot(QPoint(-15, -15))
         drag.setPixmap(cover)
         return drag

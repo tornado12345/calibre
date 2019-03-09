@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
+from __future__ import print_function
 
 import os
 import re
@@ -8,7 +9,6 @@ import socket
 import sys
 import time
 import traceback
-from functools import partial
 
 import apsw
 from PyQt5.Qt import QCoreApplication, QIcon, QObject, QTimer
@@ -147,14 +147,9 @@ def get_library_path(gui_runner):
     library_path = prefs['library_path']
     if library_path is None:  # Need to migrate to new database layout
         base = os.path.expanduser('~')
-        if iswindows:
-            try:
-                base = winutil.special_folder_path(winutil.CSIDL_PERSONAL)
-            except ValueError:
-                base = None
-            if not base or not os.path.exists(base):
-                from PyQt5.Qt import QDir
-                base = unicode(QDir.homePath()).replace('/', os.sep)
+        if not base or not os.path.exists(base):
+            from PyQt5.Qt import QDir
+            base = unicode(QDir.homePath()).replace('/', os.sep)
         candidate = gui_runner.choose_dir(base)
         if not candidate:
             candidate = os.path.join(base, 'Calibre Library')
@@ -244,18 +239,12 @@ class GuiRunner(QObject):
                 self.timed_print('splash screen hidden')
             self.splash_screen = None
         self.timed_print('Started up in %.2f seconds'%(monotonic() - self.startup_time), 'with', len(db.data), 'books')
-        add_filesystem_book = partial(main.iactions['Add Books'].add_filesystem_book, allow_device=False)
         main.set_exception_handler()
         if len(self.args) > 1:
-            files = [os.path.abspath(p) for p in self.args[1:] if not
-                    os.path.isdir(p)]
-            if len(files) < len(sys.argv[1:]):
-                prints('Ignoring directories passed as command line arguments')
-            if files:
-                add_filesystem_book(files)
+            main.handle_cli_args(self.args[1:])
         for event in self.app.file_event_hook.events:
-            add_filesystem_book(event)
-        self.app.file_event_hook = add_filesystem_book
+            main.handle_cli_args(event)
+        self.app.file_event_hook = main.handle_cli_args
 
     def choose_dir(self, initial_dir):
         self.hide_splash_screen()
@@ -269,7 +258,7 @@ class GuiRunner(QObject):
             error_dialog(self.splash_screen, title, msg, det_msg=det_msg, show=True)
 
     def initialization_failed(self):
-        print 'Catastrophic failure initializing GUI, bailing out...'
+        print('Catastrophic failure initializing GUI, bailing out...')
         QCoreApplication.exit(1)
         raise SystemExit(1)
 

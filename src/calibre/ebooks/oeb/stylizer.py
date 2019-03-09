@@ -11,10 +11,10 @@ __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.com>'
 import os, re, logging, copy, unicodedata
 from weakref import WeakKeyDictionary
 from xml.dom import SyntaxErr as CSSSyntaxError
-from cssutils.css import (CSSStyleRule, CSSPageRule, CSSFontFaceRule,
-        cssproperties, CSSRule)
-from cssutils import (profile as cssprofiles, parseString, parseStyle, log as
-        cssutils_log, CSSParser, profiles, replaceUrls)
+from css_parser.css import (CSSStyleRule, CSSPageRule, CSSFontFaceRule,
+        cssproperties)
+from css_parser import (profile as cssprofiles, parseString, parseStyle, log as
+        css_parser_log, CSSParser, profiles, replaceUrls)
 from calibre import force_unicode, as_unicode
 from calibre.ebooks import unit_convert
 from calibre.ebooks.oeb.base import XHTML, XHTML_NS, CSS_MIME, OEB_STYLES, xpath, urlnormalize
@@ -22,7 +22,7 @@ from calibre.ebooks.oeb.normalize_css import DEFAULTS, normalizers
 from css_selectors import Select, SelectorError, INAPPROPRIATE_PSEUDO_CLASSES
 from tinycss.media3 import CSSMedia3Parser
 
-cssutils_log.setLevel(logging.WARN)
+css_parser_log.setLevel(logging.WARN)
 
 _html_css_stylesheet = None
 
@@ -123,7 +123,7 @@ class Stylizer(object):
             stylesheets.append(parseString(base_css, validate=False))
         style_tags = xpath(tree, '//*[local-name()="style" or local-name()="link"]')
 
-        # Add cssutils parsing profiles from output_profile
+        # Add css_parser parsing profiles from output_profile
         for profile in self.opts.output_profile.extra_css_modules:
             cssprofiles.addProfile(profile['name'],
                                         profile['props'],
@@ -133,8 +133,7 @@ class Stylizer(object):
                 log=logging.getLogger('calibre.css'))
         self.font_face_rules = []
         for elem in style_tags:
-            if (elem.tag == XHTML('style') and
-                elem.get('type', CSS_MIME) in OEB_STYLES and media_ok(elem.get('media'))):
+            if (elem.tag == XHTML('style') and elem.get('type', CSS_MIME) in OEB_STYLES and media_ok(elem.get('media'))):
                 text = elem.text if elem.text else u''
                 for x in elem:
                     t = getattr(x, 'text', None)
@@ -164,18 +163,15 @@ class Stylizer(object):
                                 self.logger.warn('CSS @import of non-CSS file %r' % rule.href)
                                 continue
                             stylesheets.append(sitem.data)
-                    for rule in tuple(stylesheet.cssRules.rulesOfType(CSSRule.PAGE_RULE)):
-                        stylesheet.cssRules.remove(rule)
                     # Make links to resources absolute, since these rules will
                     # be folded into a stylesheet at the root
                     replaceUrls(stylesheet, item.abshref,
                             ignoreImportRules=True)
                     stylesheets.append(stylesheet)
-            elif (elem.tag == XHTML('link') and elem.get('href') and
-                  elem.get('rel', 'stylesheet').lower() == 'stylesheet' and
-                  elem.get('type', CSS_MIME).lower() in OEB_STYLES and
-                  media_ok(elem.get('media'))
-                  ):
+            elif (elem.tag == XHTML('link') and elem.get('href') and elem.get(
+                    'rel', 'stylesheet').lower() == 'stylesheet' and elem.get(
+                    'type', CSS_MIME).lower() in OEB_STYLES and media_ok(elem.get('media'))
+                ):
                 href = urlnormalize(elem.attrib['href'])
                 path = item.abshref(href)
                 sitem = oeb.manifest.hrefs.get(path, None)
@@ -221,7 +217,7 @@ class Stylizer(object):
         rules.sort()
         self.rules = rules
         self._styles = {}
-        pseudo_pat = re.compile(ur':{1,2}(%s)' % ('|'.join(INAPPROPRIATE_PSEUDO_CLASSES)), re.I)
+        pseudo_pat = re.compile(u':{1,2}(%s)' % ('|'.join(INAPPROPRIATE_PSEUDO_CLASSES)), re.I)
         select = Select(tree, ignore_inappropriate_pseudo_classes=True)
 
         for _, _, cssdict, text, _ in rules:
@@ -340,7 +336,7 @@ class Stylizer(object):
             if size == 'smallest':
                 size = 'xx-small'
             if size in FONT_SIZE_NAMES:
-                style['font-size'] = "%dpt" % self.profile.fnames[size]
+                style['font-size'] = "%.1frem" % (self.profile.fnames[size] / float(self.profile.fbase))
         if '-epub-writing-mode' in style:
             for x in ('-webkit-writing-mode', 'writing-mode'):
                 style[x] = style.get(x, style['-epub-writing-mode'])

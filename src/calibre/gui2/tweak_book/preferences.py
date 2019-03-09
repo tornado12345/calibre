@@ -8,9 +8,8 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 from operator import attrgetter, methodcaller
 from collections import namedtuple
-from future_builtins import map
+from polyglot.builtins import map
 from itertools import product
-from functools import partial
 from copy import copy, deepcopy
 
 from PyQt5.Qt import (
@@ -185,7 +184,7 @@ class EditorSettings(BasicSettings):
 
         self.tb = b = QPushButton(_('Change &templates'))
         l.addRow(_('Templates for new files:'), b)
-        b.clicked.connect(lambda : TemplatesDialog(self).exec_())
+        connect_lambda(b.clicked, self, lambda self: TemplatesDialog(self).exec_())
 
         lw = self('editor_line_wrap')
         lw.setText(_('&Wrap long lines in the editor'))
@@ -349,7 +348,8 @@ class PreviewSettings(BasicSettings):
             w.setCurrentFont(QFont(val))
 
         families = {'serif':_('Serif text'), 'sans':_('Sans-serif text'), 'mono':_('Monospaced text')}
-        for fam, text in families.iteritems():
+        for fam in sorted(families):
+            text = families[fam]
             w = QFontComboBox(self)
             self('preview_%s_family' % fam, widget=w, getter=family_getter, setter=family_setter)
             l.addRow(_('Font family for &%s:') % text, w)
@@ -415,10 +415,10 @@ class ToolbarSettings(QWidget):
         l.addWidget(gb1, 0, 0, -1, 1), l.addWidget(gb2, 0, 2, -1, 1)
         self.available, self.current = ToolbarList(self), ToolbarList(self)
         self.ub = b = QToolButton(self)
-        b.clicked.connect(partial(self.move, up=True))
+        connect_lambda(b.clicked, self, lambda self: self.move(up=True))
         b.setToolTip(_('Move selected action up')), b.setIcon(QIcon(I('arrow-up.png')))
         self.db = b = QToolButton(self)
-        b.clicked.connect(partial(self.move, up=False))
+        connect_lambda(b.clicked, self, lambda self: self.move(up=False))
         b.setToolTip(_('Move selected action down')), b.setIcon(QIcon(I('arrow-down.png')))
         self.gl1 = gl1 = QVBoxLayout()
         gl1.addWidget(self.available), gb1.setLayout(gl1)
@@ -755,6 +755,9 @@ class Preferences(QDialog):
         changed = 0
         for key in tuple(tprefs):
             if key.endswith('_again') and tprefs.get(key) is False:
+                del tprefs[key]
+                changed += 1
+            elif key.startswith('skip_ask_to_show_current_diff_for_'):
                 del tprefs[key]
                 changed += 1
         msg = _('There are no disabled confirmation prompts')

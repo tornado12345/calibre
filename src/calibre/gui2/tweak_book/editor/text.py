@@ -8,7 +8,7 @@ import os
 import re
 import textwrap
 import unicodedata
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import (
     QColor, QColorDialog, QFont, QFontDatabase, QKeySequence, QPainter, QPalette,
@@ -191,9 +191,9 @@ class TextEdit(PlainTextEdit):
             return
         if md.hasImage():
             img = md.imageData()
-            if img is not None and img.isValid():
+            if img is not None and not img.isNull():
                 data = image_to_data(img, fmt='PNG')
-                name = add_file(get_name('dropped_image.png', data))
+                name = add_file(get_name('dropped_image.png'), data)
                 self.insert_image(get_href(name))
                 self.ensureCursorVisible()
                 return
@@ -869,13 +869,17 @@ version="1.1" width="100%%" height="100%%" viewBox="0 0 {w} {h}" preserveAspectR
             c.setPosition(left + len(text), c.KeepAnchor)
         self.setTextCursor(c)
 
-    def insert_hyperlink(self, target, text):
+    def insert_hyperlink(self, target, text, template=None):
         if hasattr(self.smarts, 'insert_hyperlink'):
-            self.smarts.insert_hyperlink(self, target, text)
+            self.smarts.insert_hyperlink(self, target, text, template=template)
 
     def insert_tag(self, tag):
         if hasattr(self.smarts, 'insert_tag'):
             self.smarts.insert_tag(self, tag)
+
+    def remove_tag(self):
+        if hasattr(self.smarts, 'remove_tag'):
+            self.smarts.remove_tag(self)
 
     def keyPressEvent(self, ev):
         if ev.key() == Qt.Key_X and ev.modifiers() == Qt.AltModifier:

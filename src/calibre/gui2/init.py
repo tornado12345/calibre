@@ -24,6 +24,7 @@ from calibre.gui2.book_details import BookDetails
 from calibre.gui2.notify import get_notifier
 from calibre.gui2.layout_menu import LayoutMenu
 from calibre.customize.ui import find_plugin
+from calibre.utils.localization import localize_website_link
 
 _keep_refs = []
 
@@ -41,6 +42,7 @@ class LibraryViewMixin(object):  # {{{
 
     def init_library_view_mixin(self, db):
         self.library_view.files_dropped.connect(self.iactions['Add Books'].files_dropped, type=Qt.QueuedConnection)
+        self.library_view.books_dropped.connect(self.iactions['Edit Metadata'].books_dropped, type=Qt.QueuedConnection)
         self.library_view.add_column_signal.connect(partial(self.iactions['Preferences'].do_config,
             initial_plugin=('Interface', 'Custom Columns')),
                 type=Qt.QueuedConnection)
@@ -226,7 +228,7 @@ class VersionLabel(QLabel):  # {{{
         self.setToolTip(_('See what\'s new in this calibre release'))
 
     def mouseReleaseEvent(self, ev):
-        open_url('https://calibre-ebook.com/whats-new')
+        open_url(localize_website_link('https://calibre-ebook.com/whats-new'))
         ev.accept()
         return QLabel.mouseReleaseEvent(self, ev)
 
@@ -657,6 +659,8 @@ class LayoutMixin(object):  # {{{
                 type=Qt.QueuedConnection)
         self.book_details.open_fmt_with.connect(self.bd_open_fmt_with,
                 type=Qt.QueuedConnection)
+        self.book_details.edit_book.connect(self.bd_edit_book,
+                type=Qt.QueuedConnection)
         self.book_details.cover_removed.connect(self.bd_cover_removed,
                 type=Qt.QueuedConnection)
         self.book_details.remote_file_dropped.connect(
@@ -680,6 +684,7 @@ class LayoutMixin(object):  # {{{
         self.book_details.view_device_book.connect(
                 self.iactions['View'].view_device_book)
         self.book_details.manage_category.connect(self.manage_category_triggerred)
+        self.book_details.edit_identifiers.connect(self.edit_identifiers_triggerred)
         self.book_details.compare_specific_format.connect(self.compare_format)
 
         m = self.library_view.model()
@@ -688,6 +693,17 @@ class LayoutMixin(object):  # {{{
             m.current_changed(self.library_view.currentIndex(),
                     self.library_view.currentIndex())
         self.library_view.setFocus(Qt.OtherFocusReason)
+
+    def edit_identifiers_triggerred(self):
+        book_id = self.library_view.current_book
+        db = self.current_db.new_api
+        identifiers = db.field_for('identifiers', book_id, default_value={})
+        from calibre.gui2.metadata.basic_widgets import Identifiers
+        d = Identifiers(identifiers, self)
+        if d.exec_() == d.Accepted:
+            identifiers = d.get_identifiers()
+            db.set_field('identifiers', {book_id: identifiers})
+            self.iactions['Edit Metadata'].refresh_books_after_metadata_edit({book_id})
 
     def manage_category_triggerred(self, field, value):
         if field and value:
@@ -727,6 +743,11 @@ class LayoutMixin(object):  # {{{
                 'The book {0} does not have the {1} format').format(
                     self.current_db.new_api.field_for('title', book_id, default_value=_('Unknown')),
                     fmt), show=True)
+
+    def bd_edit_book(self, book_id, fmt):
+        from calibre.gui2.device import BusyCursor
+        with BusyCursor():
+            self.iactions['Tweak ePub'].ebook_edit_format(book_id, fmt)
 
     def open_with_action_triggerred(self, fmt, entry, *args):
         book_id = self.library_view.current_book

@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -35,8 +36,8 @@ class Formats(QAbstractListModel):
         if role == Qt.ToolTipRole:
             fmt = self.fmts[row]
             count = self.counts[fmt]
-            return ngettext('There is one book with the {fmt} format',
-                            'There are {count} books with the {fmt} format', count).format(
+            return _('There is one book with the {} format').format(fmt.upper()) if count == 1 else _(
+                'There are {count} books with the {fmt} format', count).format(
                                 count=count, fmt=fmt.upper())
         return None
 
@@ -97,4 +98,4 @@ if __name__ == '__main__':
     app = QApplication([])
     d = SelectFormats(['epub', 'lrf', 'lit', 'mobi'], 'Choose a format')
     d.exec_()
-    print d.selected_formats
+    print(d.selected_formats)

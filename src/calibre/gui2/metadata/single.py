@@ -17,6 +17,7 @@ from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
         QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut, QDialog)
 
 from calibre.constants import isosx
+from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.ebooks.metadata import authors_to_string, string_to_authors
 from calibre.gui2 import error_dialog, gprefs, pixmap_to_data
 from calibre.gui2.metadata.basic_widgets import (TitleEdit, AuthorsEdit,
@@ -50,12 +51,14 @@ class ScrollArea(QScrollArea):
 class MetadataSingleDialogBase(QDialog):
 
     view_format = pyqtSignal(object, object)
+    edit_format = pyqtSignal(object, object)
     cc_two_column = tweaks['metadata_single_use_2_cols_for_custom_fields']
     one_line_comments_toolbar = False
     use_toolbutton_for_config_metadata = True
 
     def __init__(self, db, parent=None, editing_multiple=False):
         self.db = db
+        self.was_data_edited = False
         self.changed = set()
         self.books_to_refresh = set()
         self.rows_to_refresh = set()
@@ -292,6 +295,8 @@ class MetadataSingleDialogBase(QDialog):
         self.config_metadata_button.clicked.connect(self.configure_metadata)
         self.config_metadata_button.setToolTip(
             _('Change how calibre downloads metadata'))
+        for w in self.basic_metadata_widgets:
+            w.data_changed.connect(self.data_changed)
 
     # }}}
 
@@ -320,6 +325,7 @@ class MetadataSingleDialogBase(QDialog):
                 two_column=self.cc_two_column)
         self.__custom_col_layouts = [layout]
         for widget in self.custom_metadata_widgets:
+            widget.connect_data_changed(self.data_changed)
             if isinstance(widget, Comments):
                 self.comments_edit_state_at_apply[widget] = None
     # }}}
@@ -347,11 +353,31 @@ class MetadataSingleDialogBase(QDialog):
         else:
             self.view_format.emit(self.book_id, fmt)
 
+    def do_edit_format(self, path, fmt):
+        if self.was_data_edited:
+            from calibre.gui2.tweak_book import tprefs
+            tprefs.refresh()  # In case they were changed in a Tweak Book process
+            from calibre.gui2 import question_dialog
+            if tprefs['update_metadata_from_calibre'] and question_dialog(
+                    self, _('Save Changed Metadata?'),
+                    _("You've changed the metadata for this book."
+                      " Edit book is set to update embedded metadata when opened."
+                      " You need to save your changes for them to be included."),
+                    yes_text=_('&Save'), no_text=_("&Don't save"),
+                    yes_icon='dot_green.png', no_icon='dot_red.png',
+                    default_yes=True, skip_dialog_name='edit-metadata-save-before-edit-format'):
+                if self.apply_changes():
+                    self.was_data_edited = False
+        self.edit_format.emit(self.book_id, fmt)
+
     def copy_fmt(self, fmt, f):
         self.db.copy_format_to(self.book_id, fmt, f, index_is_id=True)
 
     def do_layout(self):
         raise NotImplementedError()
+
+    def data_changed(self):
+        self.was_data_edited = True
 
     def __call__(self, id_):
         self.book_id = id_
@@ -363,6 +389,7 @@ class MetadataSingleDialogBase(QDialog):
             widget.initialize(id_)
         if callable(self.set_current_callback):
             self.set_current_callback(id_)
+        self.was_data_edited = False
         # Commented out as it doesn't play nice with Next, Prev buttons
         # self.fetch_metadata_button.setFocus(Qt.OtherFocusReason)
 
@@ -609,8 +636,8 @@ class MetadataSingleDialogBase(QDialog):
             pm = ngettext('There is another book to edit in this set.',
                           'There are still {} more books to edit in this set.', num).format(num)
             if not question_dialog(
-                    self, _('Are you sure?'), pm + _(
-                      ' Are you sure you want to stop? Use the "Next" button'
+                    self, _('Are you sure?'), pm + ' ' + _(
+                      'Are you sure you want to stop? Use the "Next" button'
                       ' instead of the "OK" button to move through books in the set.'),
                     yes_text=_('&Stop editing'), no_text=_('&Continue editing'),
                     yes_icon='dot_red.png', no_icon='dot_green.png',
@@ -620,6 +647,10 @@ class MetadataSingleDialogBase(QDialog):
 
     def reject(self):
         self.save_state()
+        if self.was_data_edited and not confirm(
+                title=_('Are you sure?'), name='confirm-cancel-edit-single-metadata', msg=_(
+                    'You will lose all unsaved changes, are you sure?'), parent=self):
+            return
         QDialog.reject(self)
 
     def save_state(self):
@@ -631,12 +662,14 @@ class MetadataSingleDialogBase(QDialog):
             traceback.print_exc()
 
     # Dialog use methods {{{
-    def start(self, row_list, current_row, view_slot=None,
+    def start(self, row_list, current_row, view_slot=None, edit_slot=None,
             set_current_callback=None):
         self.row_list = row_list
         self.current_row = current_row
         if view_slot is not None:
             self.view_format.connect(view_slot)
+        if edit_slot is not None:
+            self.edit_format.connect(edit_slot)
         self.set_current_callback = set_current_callback
         self.do_one(apply_changes=False)
         ret = self.exec_()
@@ -693,6 +726,7 @@ class MetadataSingleDialogBase(QDialog):
             except:
                 pass  # Fails if view format was never connected
         disconnect(self.view_format)
+        disconnect(self.edit_format)
         for b in ('next_button', 'prev_button'):
             x = getattr(self, b, None)
             if x is not None:
@@ -835,7 +869,7 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         l.addWidget(self.fetch_metadata_button, 10, 0, 1, 2)
         l.addWidget(self.config_metadata_button, 10, 2, 1, 1)
 
-        self.tabs[0].gb2 = gb = QGroupBox(_('Comments'), self)
+        self.tabs[0].gb2 = gb = QGroupBox(_('Co&mments'), self)
         gb.l = l = QVBoxLayout()
         gb.setLayout(l)
         l.addWidget(self.comments)
@@ -1151,14 +1185,14 @@ editors = {'default': MetadataSingleDialog, 'alt1': MetadataSingleDialogAlt1,
            'alt2': MetadataSingleDialogAlt2}
 
 
-def edit_metadata(db, row_list, current_row, parent=None, view_slot=None,
+def edit_metadata(db, row_list, current_row, parent=None, view_slot=None, edit_slot=None,
         set_current_callback=None, editing_multiple=False):
     cls = gprefs.get('edit_metadata_single_layout', '')
     if cls not in editors:
         cls = 'default'
     d = editors[cls](db, parent, editing_multiple=editing_multiple)
     try:
-        d.start(row_list, current_row, view_slot=view_slot,
+        d.start(row_list, current_row, view_slot=view_slot, edit_slot=edit_slot,
                 set_current_callback=set_current_callback)
         return d.changed, d.rows_to_refresh
     finally:

@@ -13,7 +13,7 @@ from PyQt5.Qt import (QComboBox, QLabel, QSpinBox, QDoubleSpinBox, QDateTimeEdit
         QSpacerItem, QIcon, QCheckBox, QWidget, QHBoxLayout, QLineEdit,
         QPushButton, QMessageBox, QToolButton, Qt, QPlainTextEdit)
 
-from calibre.utils.date import qt_to_dt, now, as_local_time, as_utc
+from calibre.utils.date import qt_to_dt, now, as_local_time, as_utc, internal_iso_format_string
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.gui2.comments_editor import Editor as CommentsEditor
 from calibre.gui2 import UNDEFINED_QDATETIME, error_dialog
@@ -25,12 +25,20 @@ from calibre.gui2.library.delegates import ClearingDoubleSpinBox, ClearingSpinBo
 from calibre.gui2.widgets2 import RatingEditor
 
 
+def safe_disconnect(signal):
+    try:
+        signal.disconnect()
+    except Exception:
+        pass
+
+
 class Base(object):
 
     def __init__(self, db, col_id, parent=None):
         self.db, self.col_id = db, col_id
         self.col_metadata = db.custom_column_num_map[col_id]
         self.initial_val = self.widgets = None
+        self.signals_to_disconnect = []
         self.setup_ui(parent)
 
     def initialize(self, book_id):
@@ -66,6 +74,12 @@ class Base(object):
 
     def break_cycles(self):
         self.db = self.widgets = self.initial_val = None
+        for signal in self.signals_to_disconnect:
+            safe_disconnect(signal)
+        self.signals_to_disconnect = []
+
+    def connect_data_changed(self, slot):
+        pass
 
 
 class SimpleText(Base):
@@ -78,6 +92,10 @@ class SimpleText(Base):
 
     def getter(self):
         return self.widgets[1].text().strip()
+
+    def connect_data_changed(self, slot):
+        self.widgets[1].textChanged.connect(slot)
+        self.signals_to_disconnect.append(self.widgets[1].textChanged)
 
 
 class LongText(Base):
@@ -97,6 +115,10 @@ class LongText(Base):
 
     def getter(self):
         return self._tb.toPlainText()
+
+    def connect_data_changed(self, slot):
+        self._tb.textChanged.connect(slot)
+        self.signals_to_disconnect.append(self._tb.textChanged)
 
 
 class Bool(Base):
@@ -165,6 +187,10 @@ class Bool(Base):
     def set_to_cleared(self):
         self.combobox.setCurrentIndex(2)
 
+    def connect_data_changed(self, slot):
+        self.combobox.currentTextChanged.connect(slot)
+        self.signals_to_disconnect.append(self.combobox.currentTextChanged)
+
 
 class Int(Base):
 
@@ -195,6 +221,10 @@ class Int(Base):
             self.setter(0)
         self.was_none = to_what == self.widgets[1].minimum()
 
+    def connect_data_changed(self, slot):
+        self.widgets[1].valueChanged.connect(slot)
+        self.signals_to_disconnect.append(self.widgets[1].valueChanged)
+
 
 class Float(Int):
 
@@ -222,6 +252,10 @@ class Rating(Base):
 
     def getter(self):
         return self.widgets[1].rating_value or None
+
+    def connect_data_changed(self, slot):
+        self.widgets[1].currentTextChanged.connect(slot)
+        self.signals_to_disconnect.append(self.widgets[1].currentTextChanged)
 
 
 class DateTimeEdit(QDateTimeEdit):
@@ -274,6 +308,8 @@ class DateTime(Base):
         format_ = cm['display'].get('date_format','')
         if not format_:
             format_ = 'dd MMM yyyy hh:mm'
+        elif format_ == 'iso':
+            format_ = internal_iso_format_string()
         w.setDisplayFormat(format_)
         w.setCalendarPopup(True)
         w.setMinimumDateTime(UNDEFINED_QDATETIME)
@@ -301,6 +337,10 @@ class DateTime(Base):
 
     def normalize_ui_val(self, val):
         return as_utc(val) if val is not None else None
+
+    def connect_data_changed(self, slot):
+        self.widgets[1].dateTimeChanged.connect(slot)
+        self.signals_to_disconnect.append(self.widgets[1].dateTimeChanged)
 
 
 class Comments(Base):
@@ -344,6 +384,10 @@ class Comments(Base):
         def fset(self, val):
             self._tb.tab = val
         return property(fget=fget, fset=fset)
+
+    def connect_data_changed(self, slot):
+        self._tb.data_changed.connect(slot)
+        self.signals_to_disconnect.append(self._tb.data_changed)
 
 
 class MultipleWidget(QWidget):
@@ -394,6 +438,14 @@ class MultipleWidget(QWidget):
 
     def text(self):
         return self.tags_box.text()
+
+
+def _save_dialog(parent, title, msg, det_msg=''):
+    d = QMessageBox(parent)
+    d.setWindowTitle(title)
+    d.setText(msg)
+    d.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+    return d.exec_()
 
 
 class Text(Base):
@@ -455,17 +507,9 @@ class Text(Base):
             val = None
         return val
 
-    def _save_dialog(self, parent, title, msg, det_msg=''):
-        d = QMessageBox(parent)
-        d.setWindowTitle(title)
-        d.setText(msg)
-        d.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-        return d.exec_()
-
     def edit(self):
-        if (self.getter() != self.initial_val and (self.getter() or
-            self.initial_val)):
-            d = self._save_dialog(self.parent, _('Values changed'),
+        if (self.getter() != self.initial_val and (self.getter() or self.initial_val)):
+            d = _save_dialog(self.parent, _('Values changed'),
                     _('You have changed the values. In order to use this '
                        'editor, you must either discard or apply these '
                        'changes. Apply changes?'))
@@ -480,6 +524,14 @@ class Text(Base):
         d = TagEditor(self.parent, self.db, self.book_id, self.key)
         if d.exec_() == TagEditor.Accepted:
             self.setter(d.tags)
+
+    def connect_data_changed(self, slot):
+        if self.col_metadata['is_multiple']:
+            s = self.widgets[1].tags_box.currentTextChanged
+        else:
+            s = self.widgets[1].currentTextChanged
+        s.connect(slot)
+        self.signals_to_disconnect.append(s)
 
 
 class Series(Base):
@@ -554,6 +606,11 @@ class Series(Base):
         val, s_index = self.current_val
         mi.set('#' + self.col_metadata['label'], val, extra=s_index)
 
+    def connect_data_changed(self, slot):
+        for s in self.widgets[1].editTextChanged, self.widgets[3].valueChanged:
+            s.connect(slot)
+            self.signals_to_disconnect.append(s)
+
 
 class Enumeration(Base):
 
@@ -597,6 +654,10 @@ class Enumeration(Base):
         if not val:
             val = None
         return val
+
+    def connect_data_changed(self, slot):
+        self.widgets[1].currentIndexChanged.connect(slot)
+        self.signals_to_disconnect.append(self.widgets[1].currentIndexChanged)
 
 
 def comments_factory(db, key, parent):
@@ -669,13 +730,13 @@ def populate_metadata_page(layout, db, book_id, bulk=False, two_column=False, pa
     count = len(cols)
     layout_rows_for_comments = 9
     if two_column:
-        turnover_point = ((count-comments_not_in_tweak+1) +
-                          comments_in_tweak*(layout_rows_for_comments-1))/2
+        turnover_point = ((count-comments_not_in_tweak+1) + comments_in_tweak*(layout_rows_for_comments-1))/2
     else:
         # Avoid problems with multi-line widgets
         turnover_point = count + 1000
     ans = []
     column = row = base_row = max_row = 0
+    minimum_label = 0
     for key in cols:
         if not fm[key]['is_editable']:
             continue  # this almost never happens
@@ -711,10 +772,33 @@ def populate_metadata_page(layout, db, book_id, bulk=False, two_column=False, pa
         for c in range(0, len(w.widgets), 2):
             if not is_comments:
                 w.widgets[c].setWordWrap(True)
+                '''
+                It seems that there is something strange with wordwrapped labels
+                with some fonts. Apparently one part of QT thinks it is showing
+                a single line and sizes the line vertically accordingly. Another
+                part thinks there isn't enough space and wraps the label. The
+                result is two lines in a single line space, cutting off parts of
+                the lines. It doesn't happen with every font, nor with every
+                "long" label.
+
+                This change works around the problem by setting the maximum
+                display width and telling QT to respect that width.
+
+                While here I implemented an arbitrary minimum label length so
+                that there is a better chance that the field edit boxes line up.
+                '''
+                if minimum_label == 0:
+                    minimum_label = w.widgets[c].fontMetrics().boundingRect('smallLabel').width()
+                label_width = w.widgets[c].fontMetrics().boundingRect(w.widgets[c].text()).width()
+                if c == 0:
+                    w.widgets[0].setMaximumWidth(label_width)
+                    w.widgets[0].setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+                    l.setColumnMinimumWidth(0, minimum_label)
+                else:
+                    w.widgets[0].setMaximumWidth(max(w.widgets[0].maximumWidth(), label_width))
                 w.widgets[c].setBuddy(w.widgets[c+1])
                 l.addWidget(w.widgets[c], c, 0)
                 l.addWidget(w.widgets[c+1], c, 1)
-                l.setColumnStretch(1, 10000)
             else:
                 l.addWidget(w.widgets[0], 0, 0, 1, 2)
         l.addItem(QSpacerItem(0, 0, vPolicy=QSizePolicy.Expanding), c, 0, 1, 1)
@@ -769,7 +853,8 @@ class BulkBase(Base):
         val = self.normalize_ui_val(val)
         self.db.set_custom_bulk(book_ids, val, num=self.col_id, notify=notify)
 
-    def make_widgets(self, parent, main_widget_class, extra_label_text=''):
+    def make_widgets(self, parent, main_widget_class, extra_label_text='',
+                     add_tags_edit_button=False):
         w = QWidget(parent)
         self.widgets = [QLabel('&'+self.col_metadata['name']+':', w), w]
         l = QHBoxLayout()
@@ -778,6 +863,11 @@ class BulkBase(Base):
         self.main_widget = main_widget_class(w)
         l.addWidget(self.main_widget)
         l.setStretchFactor(self.main_widget, 10)
+        if add_tags_edit_button:
+            self.edit_tags_button = QToolButton(parent)
+            self.edit_tags_button.setToolTip(_('Open Item Editor'))
+            self.edit_tags_button.setIcon(QIcon(I('chapters.png')))
+            l.addWidget(self.edit_tags_button)
         self.a_c_checkbox = QCheckBox(_('Apply changes'), w)
         l.addWidget(self.a_c_checkbox)
         self.ignore_change_signals = True
@@ -936,10 +1026,12 @@ class BulkDateTime(BulkBase):
         l.addStretch(2)
 
         w = self.main_widget
-        format = cm['display'].get('date_format','')
-        if not format:
-            format = 'dd MMM yyyy'
-        w.setDisplayFormat(format)
+        format_ = cm['display'].get('date_format','')
+        if not format_:
+            format_ = 'dd MMM yyyy'
+        elif format_ == 'iso':
+            format_ = internal_iso_format_string()
+        w.setDisplayFormat(format_)
         w.setCalendarPopup(True)
         w.setMinimumDateTime(UNDEFINED_QDATETIME)
         w.setSpecialValueText(_('Undefined'))
@@ -986,20 +1078,20 @@ class BulkSeries(BulkBase):
         layout.addWidget(self.remove_series)
         self.idx_widget = QCheckBox(parent)
         self.idx_widget.setText(_('Automatically number books'))
-        self.idx_widget.setToolTip('<p>' +
-                       _('If not checked, the series number for the books will be set to 1. '
-                         'If checked, selected books will be automatically numbered, '
-                         'in the order you selected them. So if you selected '
-                         'Book A and then Book B, Book A will have series number 1 '
-                         'and Book B series number 2.') + '</p>')
+        self.idx_widget.setToolTip('<p>' + _(
+            'If not checked, the series number for the books will be set to 1. '
+            'If checked, selected books will be automatically numbered, '
+            'in the order you selected them. So if you selected '
+            'Book A and then Book B, Book A will have series number 1 '
+            'and Book B series number 2.') + '</p>')
         layout.addWidget(self.idx_widget)
         self.force_number = QCheckBox(parent)
         self.force_number.setText(_('Force numbers to start with '))
-        self.force_number.setToolTip('<p>' +
-                         _('Series will normally be renumbered from the highest '
-                           'number in the database for that series. Checking this '
-                           'box will tell calibre to start numbering from the value '
-                           'in the box') + '</p>')
+        self.force_number.setToolTip('<p>' + _(
+            'Series will normally be renumbered from the highest '
+            'number in the database for that series. Checking this '
+            'box will tell calibre to start numbering from the value '
+            'in the box') + '</p>')
         layout.addWidget(self.force_number)
         self.series_start_number = QDoubleSpinBox(parent)
         self.series_start_number.setMinimum(0.0)
@@ -1010,10 +1102,10 @@ class BulkSeries(BulkBase):
         self.series_increment.setMinimum(0.00)
         self.series_increment.setMaximum(99999.0)
         self.series_increment.setProperty("value", 1.0)
-        self.series_increment.setToolTip('<p>' +
-                         _('The amount by which to increment the series number '
-                           'for successive books. Only applicable when using '
-                           'force series numbers.') + '</p>')
+        self.series_increment.setToolTip('<p>' + _(
+            'The amount by which to increment the series number '
+            'for successive books. Only applicable when using '
+            'force series numbers.') + '</p>')
         self.series_increment.setPrefix('+')
         layout.addWidget(self.series_increment)
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
@@ -1163,6 +1255,10 @@ class RemoveTags(QWidget):
         self.tags_box = EditWithComplete(parent)
         self.tags_box.update_items_cache(values)
         layout.addWidget(self.tags_box, stretch=3)
+        self.remove_tags_button = QToolButton(parent)
+        self.remove_tags_button.setToolTip(_('Open Item Editor'))
+        self.remove_tags_button.setIcon(QIcon(I('chapters.png')))
+        layout.addWidget(self.remove_tags_button)
         self.checkbox = QCheckBox(_('Remove all tags'), parent)
         layout.addWidget(self.checkbox)
         layout.addStretch(1)
@@ -1183,15 +1279,18 @@ class BulkText(BulkBase):
         values = self.all_values = list(self.db.all_custom(num=self.col_id))
         values.sort(key=sort_key)
         if self.col_metadata['is_multiple']:
+            is_tags = not self.col_metadata['display'].get('is_names', False)
             self.make_widgets(parent, EditWithComplete,
-                              extra_label_text=_('tags to add'))
+                              extra_label_text=_('tags to add'),
+                              add_tags_edit_button=is_tags)
             self.main_widget.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
             self.adding_widget = self.main_widget
 
-            if not self.col_metadata['display'].get('is_names', False):
+            if is_tags:
+                self.edit_tags_button.clicked.connect(self.edit_add)
                 w = RemoveTags(parent, values)
-                self.widgets.append(QLabel('&'+self.col_metadata['name']+': ' +
-                                           _('tags to remove'), parent))
+                w.remove_tags_button.clicked.connect(self.edit_remove)
+                self.widgets.append(QLabel('&'+self.col_metadata['name']+': ' + _('tags to remove'), parent))
                 self.widgets.append(w)
                 self.removing_widget = w
                 self.main_widget.set_separator(',')
@@ -1209,6 +1308,7 @@ class BulkText(BulkBase):
                         self.main_widget.AdjustToMinimumContentsLengthWithIcon)
             self.main_widget.setMinimumContentsLength(25)
         self.ignore_change_signals = False
+        self.parent = parent
 
     def initialize(self, book_ids):
         self.main_widget.update_items_cache(self.all_values)
@@ -1238,10 +1338,10 @@ class BulkText(BulkBase):
                 else:
                     txt = rtext
                     if txt:
-                        remove = set([v.strip() for v in txt.split(ism['ui_to_list'])])
+                        remove = {v.strip() for v in txt.split(ism['ui_to_list'])}
                 txt = adding
                 if txt:
-                    add = set([v.strip() for v in txt.split(ism['ui_to_list'])])
+                    add = {v.strip() for v in txt.split(ism['ui_to_list'])}
                 else:
                     add = set()
                 self.db.set_custom_bulk_multiple(book_ids, add=add,
@@ -1262,6 +1362,28 @@ class BulkText(BulkBase):
         if not val:
             val = None
         return val
+
+    def edit_remove(self):
+        self.edit(widget=self.removing_widget.tags_box)
+
+    def edit_add(self):
+        self.edit(widget=self.main_widget)
+
+    def edit(self, widget):
+        if widget.text():
+            d = _save_dialog(self.parent, _('Values changed'),
+                    _('You have entered values. In order to use this '
+                       'editor you must first discard them. '
+                       'Discard the values?'))
+            if d == QMessageBox.Cancel or d == QMessageBox.No:
+                return
+            widget.setText('')
+        d = TagEditor(self.parent, self.db, key=('#'+self.col_metadata['label']))
+        if d.exec_() == TagEditor.Accepted:
+            val = d.tags
+            if not val:
+                val = []
+            widget.setText(self.col_metadata['multiple_seps']['list_to_ui'].join(val))
 
 
 bulk_widgets = {

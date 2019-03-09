@@ -10,8 +10,8 @@ import sys
 
 from calibre import as_unicode
 from calibre.constants import is_running_from_develop, isosx, iswindows, plugins
-from calibre.db.legacy import LibraryDatabase
 from calibre.db.delete_service import shutdown as shutdown_delete_service
+from calibre.db.legacy import LibraryDatabase
 from calibre.srv.bonjour import BonJour
 from calibre.srv.handler import Handler
 from calibre.srv.http_response import create_http_handler
@@ -19,6 +19,7 @@ from calibre.srv.library_broker import load_gui_libraries
 from calibre.srv.loop import ServerLoop
 from calibre.srv.manage_users_cli import manage_users_cli
 from calibre.srv.opts import opts_to_parser
+from calibre.srv.users import connect
 from calibre.srv.utils import RotatingLog
 from calibre.utils.config import prefs
 from calibre.utils.localization import localize_user_manual_link
@@ -66,8 +67,11 @@ class Server(object):
             access_log = RotatingLog(opts.access_log, max_size=log_size)
         self.handler = Handler(libraries, opts)
         if opts.custom_list_template:
-            with lopen(opts.custom_list_template, 'rb') as f:
+            with lopen(os.path.expanduser(opts.custom_list_template), 'rb') as f:
                 self.handler.router.ctx.custom_list_template = json.load(f)
+        if opts.search_the_net_urls:
+            with lopen(os.path.expanduser(opts.search_the_net_urls), 'rb') as f:
+                self.handler.router.ctx.search_the_net_urls = json.load(f)
         plugins = []
         if opts.use_bonjour:
             plugins.append(BonJour())
@@ -116,6 +120,14 @@ libraries that the main calibre program knows about will be used.
             ' Sharing over the net-> Book list template in calibre, create the'
             ' template and export it.'
     ))
+    parser.add_option(
+        '--search-the-net-urls', help=_(
+            'Path to a JSON file containing URLs for the "Search the internet" feature.'
+            ' The easiest way to create such a file is to go to Preferences->'
+            ' Sharing over the net->Search the internet in calibre, create the'
+            ' URLs and export them.'
+    ))
+
     if not iswindows and not isosx:
         # Does not work on macOS because if we fork() we cannot connect to Core
         # Serives which is needed by the QApplication() constructor, which in
@@ -172,6 +184,9 @@ def ensure_single_instance():
 def main(args=sys.argv):
     opts, args = create_option_parser().parse_args(args)
     ensure_single_instance()
+    if opts.userdb:
+        opts.userdb = os.path.abspath(os.path.expandvars(os.path.expanduser(opts.userdb)))
+        connect(opts.userdb, exc_class=SystemExit).close()
     if opts.manage_users:
         try:
             manage_users_cli(opts.userdb)

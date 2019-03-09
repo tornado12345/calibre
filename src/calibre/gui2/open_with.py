@@ -104,7 +104,7 @@ if iswindows:
         ans = choose_files(
             parent, 'choose-open-with-program-manually-win',
             _('Choose a program to open %s files') % filetype.upper(),
-            filters=[(_('Executable files'), ['exe', 'bat', 'com'])], select_only_single_file=True)
+            filters=[(_('Executable files'), ['exe', 'bat', 'com', 'cmd'])], select_only_single_file=True)
         if ans:
             ans = os.path.abspath(ans[0])
             if not os.access(ans, os.X_OK):
@@ -123,12 +123,20 @@ if iswindows:
     del run_program
 
     def run_program(entry, path, parent):  # noqa
+        import re
         cmdline = entry_to_cmdline(entry, path)
-        print('Running Open With commandline:', repr(entry['cmdline']), ' |==> ', repr(cmdline))
+        flags = win32con.CREATE_DEFAULT_ERROR_MODE | win32con.CREATE_NEW_PROCESS_GROUP
+        if re.match(r'"[^"]+?(.bat|.cmd|.com)"', cmdline, flags=re.I):
+            flags |= win32con.CREATE_NO_WINDOW
+            console = ' (console)'
+        else:
+            flags |= win32con.DETACHED_PROCESS
+            console = ''
+        print('Running Open With commandline%s:' % console, repr(entry['cmdline']), ' |==> ', repr(cmdline))
         try:
             with sanitize_env_vars():
                 process_handle, thread_handle, process_id, thread_id = CreateProcess(
-                    None, cmdline, None, None, False, win32con.CREATE_DEFAULT_ERROR_MODE | win32con.CREATE_NEW_PROCESS_GROUP | win32con.DETACHED_PROCESS,
+                    None, cmdline, None, None, False,  flags,
                     None, None, STARTUPINFO())
             WaitForInputIdle(process_handle, 2000)
         except Exception as err:
@@ -327,7 +335,7 @@ def choose_program(file_type='jpeg', parent=None, prefs=oprefs):
     return entry
 
 
-def populate_menu(menu, receiver, file_type):
+def populate_menu(menu, connect_action, file_type):
     file_type = file_type.lower()
     for entry in oprefs['entries'].get(file_type, ()):
         icon, text = entry_to_icon_text(entry)
@@ -336,8 +344,7 @@ def populate_menu(menu, receiver, file_type):
         if sa is not None:
             text += '\t' + sa.shortcut().toString(QKeySequence.NativeText)
         ac = menu.addAction(icon, text)
-
-        ac.triggered.connect(partial(receiver, entry))
+        connect_action(ac, entry)
     return menu
 
 # }}}
@@ -435,7 +442,8 @@ def register_keyboard_shortcuts(gui=None, finalize=False):
             name = _('Open {0} files with {1}').format(t, text)
             ac = QAction(gui)
             unique_name = application['uuid']
-            ac.triggered.connect(partial(gui.open_with_action_triggerred, filetype, application))
+            func = partial(gui.open_with_action_triggerred, filetype, application)
+            ac.triggered.connect(func)
             gui.keyboard.register_shortcut(unique_name, name, action=ac, group=_('Open With'))
             gui.addAction(ac)
             registered_shortcuts[unique_name] = ac

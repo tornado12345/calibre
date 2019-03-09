@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
+from __future__ import print_function
 
 import re
 from collections import defaultdict, namedtuple
@@ -27,7 +28,7 @@ from calibre.gui2.dialogs.tag_editor import TagEditor
 from calibre.gui2.dialogs.template_line_editor import TemplateLineEditor
 from calibre.gui2.metadata.basic_widgets import CalendarWidget
 from calibre.utils.config import JSONConfig, dynamic, prefs, tweaks
-from calibre.utils.date import qt_to_dt
+from calibre.utils.date import qt_to_dt, internal_iso_format_string
 from calibre.utils.icu import capitalize, sort_key
 from calibre.utils.titlecase import titlecase
 from calibre.gui2.widgets import LineEditECM
@@ -494,7 +495,7 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.initialize_combos()
 
         self.series.currentIndexChanged[int].connect(self.series_changed)
-        self.rating.currentIndexChanged.connect(lambda:self.apply_rating.setChecked(True))
+        connect_lambda(self.rating.currentIndexChanged, self, lambda self:self.apply_rating.setChecked(True))
         self.series.editTextChanged.connect(self.series_changed)
         self.tag_editor_button.clicked.connect(self.tag_editor)
         self.autonumber_series.stateChanged[int].connect(self.auto_number_changed)
@@ -502,6 +503,8 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.pubdate_cw = CalendarWidget(self.pubdate)
         self.pubdate.setCalendarWidget(self.pubdate_cw)
         pubdate_format = tweaks['gui_pubdate_display_format']
+        if pubdate_format == 'iso':
+            pubdate_format = internal_iso_format_string()
         if pubdate_format is not None:
             self.pubdate.setDisplayFormat(pubdate_format)
         self.pubdate.setSpecialValueText(_('Undefined'))
@@ -512,6 +515,8 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.adddate_cw = CalendarWidget(self.adddate)
         self.adddate.setCalendarWidget(self.adddate_cw)
         adddate_format = tweaks['gui_timestamp_display_format']
+        if adddate_format == 'iso':
+            adddate_format = internal_iso_format_string()
         if adddate_format is not None:
             self.adddate.setDisplayFormat(adddate_format)
         self.adddate.setSpecialValueText(_('Undefined'))
@@ -525,7 +530,9 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         idx = max(0, self.casing_map.index(prevca))
         self.casing_algorithm.setCurrentIndex(idx)
         self.casing_algorithm.setEnabled(False)
-        self.change_title_to_title_case.toggled.connect(lambda : self.casing_algorithm.setEnabled(self.change_title_to_title_case.isChecked()))
+        connect_lambda(
+            self.change_title_to_title_case.toggled, self,
+            lambda self: self.casing_algorithm.setEnabled(self.change_title_to_title_case.isChecked()))
 
         if len(self.db.custom_field_keys(include_composites=False)) == 0:
             self.central_widget.removeTab(1)

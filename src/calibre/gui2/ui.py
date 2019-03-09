@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -613,6 +614,13 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
         m.research()
         self.tags_view.recount()
 
+    def handle_cli_args(self, args):
+        if isinstance(args, basestring):
+            args = [args]
+        files = [os.path.abspath(p) for p in args if not os.path.isdir(p) and os.access(p, os.R_OK)]
+        if files:
+            self.iactions['Add Books'].add_filesystem_book(files)
+
     def another_instance_wants_to_talk(self):
         try:
             msg = self.listener.queue.get_nowait()
@@ -631,9 +639,7 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
                                  det_msg='Invalid msg: %r' % msg, show=True)
                 argv = ()
             if isinstance(argv, (list, tuple)) and len(argv) > 1:
-                files = [os.path.abspath(p) for p in argv[1:] if not os.path.isdir(p) and os.access(p, os.R_OK)]
-                if files:
-                    self.iactions['Add Books'].add_filesystem_book(files)
+                self.handle_cli_args(argv[1:])
             self.setWindowState(self.windowState() & ~Qt.WindowMinimized|Qt.WindowActive)
             self.show_windows()
             self.raise_()
@@ -659,7 +665,7 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
                 import traceback
                 traceback.print_exc()
         else:
-            print msg
+            print(msg)
 
     def current_view(self):
         '''Convenience method that returns the currently visible view '''
@@ -910,10 +916,14 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
             pass
         self.restart_after_quit = restart
         self.debug_on_restart = debug_on_restart
+        if self.system_tray_icon is not None and self.restart_after_quit:
+            # Needed on windows to prevent multiple systray icons
+            self.system_tray_icon.setVisible(False)
         QApplication.instance().quit()
 
     def donate(self, *args):
-        open_url(QUrl('https://calibre-ebook.com/donate'))
+        from calibre.utils.localization import localize_website_link
+        open_url(QUrl(localize_website_link('https://calibre-ebook.com/donate')))
 
     def confirm_quit(self):
         if self.job_manager.has_jobs():

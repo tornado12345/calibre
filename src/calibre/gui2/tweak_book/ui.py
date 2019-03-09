@@ -9,7 +9,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import os
 from functools import partial
 from itertools import product
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import (
     QDockWidget, Qt, QLabel, QIcon, QAction, QApplication, QWidget, QEvent,
@@ -47,11 +47,11 @@ from calibre.gui2.tweak_book.editor.widget import register_text_editor_actions
 from calibre.gui2.tweak_book.editor.insert_resource import InsertImage
 from calibre.utils.icu import sort_key, ord_string
 from calibre.utils.unicode_names import character_name_from_code
-from calibre.utils.localization import localize_user_manual_link
+from calibre.utils.localization import localize_user_manual_link, localize_website_link
 
 
 def open_donate():
-    open_url(QUrl('https://calibre-ebook.com/donate'))
+    open_url(QUrl(localize_website_link('https://calibre-ebook.com/donate')))
 
 
 class Central(QStackedWidget):  # {{{
@@ -337,6 +337,11 @@ class Main(MainWindow):
         self.action_open_book = treg('document_open.png', _('&Open book'), self.boss.open_book, 'open-book', 'Ctrl+O', _('Open a new book'))
         self.action_open_book_folder = treg('mimetypes/dir.png', _('Open &folder (unzipped EPUB) as book'), partial(self.boss.open_book, open_folder=True),
                                             'open-folder-as-book', (), _('Open a folder (unzipped EPUB) as a book'))
+        self.action_edit_next_file = treg('arrow-down.png', _('Edit &next file'), partial(self.boss.edit_next_file, backwards=False),
+                'edit-next-file', 'Ctrl+Alt+Down', _('Edit the next file in the spine'))
+        self.action_edit_previous_file = treg('arrow-up.png', _('Edit &previous file'), partial(self.boss.edit_next_file, backwards=True),
+                'edit-previous-file', 'Ctrl+Alt+Up', _('Edit the previous file in the spine'))
+        # Qt does not generate shortcut overrides for cmd+arrow on os x which
         # Qt does not generate shortcut overrides for cmd+arrow on os x which
         # means these shortcuts interfere with editing
         self.action_global_undo = treg('back.png', _('&Revert to before'), self.boss.do_global_undo, 'global-undo', () if isosx else 'Ctrl+Left',

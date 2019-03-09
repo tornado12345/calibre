@@ -24,7 +24,6 @@ class Slate(BasicNewsRecipe):
     no_stylesheets = True
     language = 'en'
     encoding = 'utf-8'
-    masthead_url = 'http://img.slate.com/images/redesign2008/slate_logo.gif'
     remove_attributes = ['style']
     INDEX = 'https://slate.com'
     compress_news_images = True
@@ -65,6 +64,8 @@ class Slate(BasicNewsRecipe):
     def slate_section_articles(self, soup):
         ans = []
         main = soup.find('article', attrs={'class': 'main'})
+        if main is None:
+            return ans
         for a in main.findAll('a', attrs={'class': 'primary'}):
             url = a['href']
             if url.endswith('/'):

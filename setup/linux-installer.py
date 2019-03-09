@@ -319,7 +319,7 @@ def download_tarball():
     dest = os.path.join(cache, fname)
     raw = check_signature(dest, signature)
     if raw is not None:
-        print ('Using previously downloaded', fname)
+        print('Using previously downloaded', fname)
         return raw
     cached_sigf = dest +'.signature'
     cached_sig = None
@@ -671,7 +671,7 @@ def run_installer(install_dir, isolated, bin_dir, share_dir):
         if not os.path.isdir(destdir):
             prints(destdir, 'exists and is not a directory. Choose a location like /opt or /usr/local')
             return 1
-    print ('Installing to', destdir)
+    print('Installing to', destdir)
 
     download_and_extract(destdir)
 
@@ -694,9 +694,12 @@ def check_umask():
     mask = os.umask(18)  # 18 = 022
     os.umask(mask)
     forbid_user_read = mask & stat.S_IRUSR
+    forbid_user_exec = mask & stat.S_IXUSR
     forbid_group_read = mask & stat.S_IRGRP
+    forbid_group_exec = mask & stat.S_IXGRP
     forbid_other_read = mask & stat.S_IROTH
-    if forbid_user_read or forbid_group_read or forbid_other_read:
+    forbid_other_exec = mask & stat.S_IXOTH
+    if forbid_user_read or forbid_user_exec or forbid_group_read or forbid_group_exec or forbid_other_read or forbid_other_exec:
         prints(
             'WARNING: Your current umask disallows reading of files by some users,'
             ' this can cause system breakage when running the installer because'
@@ -709,7 +712,7 @@ def check_umask():
                 break
             prints('Response', q, 'not understood')
         if q == 'f':
-            mask = mask & ~stat.S_IRUSR & ~stat.S_IRGRP & ~stat.S_IROTH
+            mask = mask & ~stat.S_IRUSR & ~stat.S_IXUSR & ~stat.S_IRGRP & ~stat.S_IXGRP & ~stat.S_IROTH & ~stat.S_IXOTH
             os.umask(mask)
             prints('umask changed to: {:03o}'.format(mask))
         elif q == 'i':
@@ -755,7 +758,7 @@ def script_launch():
         return os.path.expanduser(x)
 
     def to_bool(x):
-        return x.lower() in {'y', 'yes', '1', 'true'}
+        return x.lower() in ('y', 'yes', '1', 'true')
 
     type_map = {x: path for x in 'install_dir isolated bin_dir share_dir ignore_umask'.split()}
     type_map['isolated'] = type_map['ignore_umask'] = to_bool

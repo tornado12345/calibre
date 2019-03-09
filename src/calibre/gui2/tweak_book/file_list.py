@@ -11,12 +11,12 @@ from binascii import hexlify
 from collections import Counter, OrderedDict, defaultdict
 from functools import partial
 
-import sip
 from PyQt5.Qt import (
-    QCheckBox, QDialog, QDialogButtonBox, QFont, QFormLayout, QGridLayout, QIcon,
-    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPainter,
-    QPixmap, QRadioButton, QScrollArea, QSize, QSpinBox, QStyle, QStyledItemDelegate,
-    Qt, QTimer, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, pyqtSignal
+    QApplication, QCheckBox, QDialog, QDialogButtonBox, QFont, QFormLayout,
+    QGridLayout, QIcon, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMenu, QPainter, QPixmap, QRadioButton, QScrollArea, QSize,
+    QSpinBox, QStyle, QStyledItemDelegate, Qt, QTimer, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget, pyqtSignal
 )
 
 from calibre import human_readable, plugins, sanitize_file_name_unicode
@@ -38,8 +38,16 @@ from calibre.gui2.tweak_book import (
 )
 from calibre.gui2.tweak_book.editor import syntax_from_mime
 from calibre.gui2.tweak_book.templates import template_for
-from calibre.utils.icu import sort_key
+from calibre.utils.icu import numeric_sort_key
+from polyglot.builtins import iteritems
 
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
+
+
+FILE_COPY_MIME = 'application/calibre-edit-book-files'
 TOP_ICON_SIZE = 24
 NAME_ROLE = Qt.UserRole
 CATEGORY_ROLE = NAME_ROLE + 1
@@ -191,6 +199,8 @@ class FileList(QTreeWidget):
     export_requested = pyqtSignal(object, object)
     replace_requested = pyqtSignal(object, object, object, object)
     link_stylesheets_requested = pyqtSignal(object, object, object)
+    initiate_file_copy = pyqtSignal(object)
+    initiate_file_paste = pyqtSignal()
 
     def __init__(self, parent=None):
         QTreeWidget.__init__(self, parent)
@@ -225,13 +235,13 @@ class FileList(QTreeWidget):
         self.rendered_emblem_cache = {}
         self.top_level_pixmap_cache = {
             name : QIcon(I(icon)).pixmap(TOP_ICON_SIZE, TOP_ICON_SIZE)
-            for name, icon in {
+            for name, icon in iteritems({
                 'text':'keyboard-prefs.png',
                 'styles':'lookfeel.png',
                 'fonts':'font.png',
                 'misc':'mimetypes/dir.png',
                 'images':'view-image.png',
-            }.iteritems()}
+            })}
         self.itemActivated.connect(self.item_double_clicked)
 
     def mimeTypes(self):
@@ -382,7 +392,7 @@ class FileList(QTreeWidget):
 
             seen[text] = item
             item.setText(0, text)
-            item.setText(1, hexlify(sort_key(text)))
+            item.setText(1, hexlify(numeric_sort_key(text)))
 
         def render_emblems(item, emblems):
             emblems = tuple(emblems)
@@ -520,7 +530,13 @@ class FileList(QTreeWidget):
             m.addAction(QIcon(I('modified.png')), _('Change the file extension for the selected files'), self.request_change_ext)
             m.addAction(QIcon(I('trash.png')), ngettext(
                 '&Delete the selected file', '&Delete the {} selected files', num).format(num), self.request_delete)
+            m.addAction(QIcon(I('edit-copy.png')), ngettext(
+                '&Copy the selected file to another editor instance',
+                '&Copy the {} selected files to another editor instance', num).format(num), self.copy_selected_files)
             m.addSeparator()
+        md = QApplication.instance().clipboard().mimeData()
+        if md.hasUrls() and md.hasFormat(FILE_COPY_MIME):
+            m.addAction(_('Paste files from other editor instance'), self.paste_from_other_instance)
 
         selected_map = defaultdict(list)
         for item in sel:
@@ -641,6 +657,12 @@ class FileList(QTreeWidget):
         ans.discard('')
         return ans
 
+    def copy_selected_files(self):
+        self.initiate_file_copy.emit(self.selected_names)
+
+    def paste_from_other_instance(self):
+        self.initiate_file_paste.emit()
+
     def request_delete(self):
         names = self.selected_names
         bad = names & current_container().names_that_must_not_be_removed
@@ -731,6 +753,21 @@ class FileList(QTreeWidget):
             error_dialog(self, _('Cannot edit'),
                          _('No item with the name: %s was found') % name, show=True)
 
+    def edit_next_file(self, currently_editing=None, backwards=False):
+        category = self.categories['text']
+        seen_current = False
+        items = (category.child(i) for i in xrange(category.childCount()))
+        if backwards:
+            items = reversed(tuple(items))
+        for item in items:
+            name = unicode(item.data(0, NAME_ROLE) or '')
+            if seen_current:
+                self._request_edit(item)
+                return True
+            if currently_editing == name:
+                seen_current = True
+        return False
+
     @property
     def all_files(self):
         return (category.child(i) for category in self.categories.itervalues() for i in xrange(category.childCount()))
@@ -745,8 +782,11 @@ class FileList(QTreeWidget):
             ok = category in {'text', 'styles'}
             if ok:
                 ans[category][name] = syntax_from_mime(name, mime)
-            if not ok and category == 'misc':
-                ok = mime in {guess_type('a.'+x) for x in ('opf', 'ncx', 'txt', 'xml')}
+            if not ok:
+                if category == 'misc':
+                    ok = mime in {guess_type('a.'+x) for x in ('opf', 'ncx', 'txt', 'xml')}
+                elif category == 'images':
+                    ok = mime == guess_type('a.svg')
             if ok:
                 cats = []
                 if item.isSelected():
@@ -976,6 +1016,7 @@ class FileListWidget(QWidget):
         for x in ('delete_done', 'select_name', 'select_names', 'request_edit', 'mark_name_as_current', 'clear_currently_edited_name'):
             setattr(self, x, getattr(self.file_list, x))
         self.setFocusProxy(self.file_list)
+        self.edit_next_file = self.file_list.edit_next_file
 
     def build(self, container, preserve_state=True):
         self.file_list.build(container, preserve_state=preserve_state)

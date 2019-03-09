@@ -10,6 +10,7 @@ from collections import OrderedDict
 
 from calibre.ebooks.BeautifulSoup import NavigableString, Tag
 from calibre.web.feeds.news import BasicNewsRecipe
+from calibre.utils.cleantext import clean_ascii_chars
 
 
 def classes(classes):
@@ -146,6 +147,18 @@ class Economist(BasicNewsRecipe):
         raw = etree.tostring(root, encoding=unicode)
         return raw
 
+    def populate_article_metadata(self, article, soup, first):
+        els = soup.findAll(name=['span', 'p'],
+                           attrs={'class': ['flytitle-and-title__title', 'blog-post__rubric']})
+        result = []
+        for el in els[0:2]:
+            if el is not None and el.contents:
+                for descendant in el.contents:
+                    if isinstance(descendant, NavigableString):
+                        result.append(unicode(descendant))
+        article.summary = u'. '.join(result) + u'.'
+        article.text_summary = clean_ascii_chars(article.summary)
+
     def parse_index(self):
         # return [('Articles', [{'title':'test',
         # 'url':'http://www.economist.com/news/business/21718916-worlds-biggest-software-firm-has-transformed-its-culture-better-getting-cloud'
@@ -154,6 +167,12 @@ class Economist(BasicNewsRecipe):
         # with open('/t/raw.html', 'wb') as f:
         #     f.write(raw)
         soup = self.index_to_soup(raw)
+        # nav = soup.find(attrs={'class':'navigation__wrapper'})
+        # if nav is not None:
+        #     a = nav.find('a', href=lambda x: x and '/printedition/' in x)
+        #     if a is not None:
+        #         self.log('Following nav link to current edition', a['href'])
+        #         soup = self.index_to_soup(process_url(a['href']))
         ans = self.economist_parse_index(soup)
         if not ans:
             raise NoArticles(

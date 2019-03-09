@@ -2,7 +2,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import re, binascii, cPickle, ssl, json
-from future_builtins import map
+from polyglot.builtins import map
 from threading import Thread, Event
 
 from PyQt5.Qt import (QObject, pyqtSignal, Qt, QUrl, QDialog, QGridLayout,
@@ -56,7 +56,7 @@ def get_newest_version():
     except UnicodeDecodeError:
         version = u''
     ans = NO_CALIBRE_UPDATE
-    m = re.match(ur'(\d+)\.(\d+).(\d+)$', version)
+    m = re.match(unicode(r'(\d+)\.(\d+).(\d+)$'), version)
     if m is not None:
         ans = tuple(map(int, (m.group(1), m.group(2), m.group(3))))
     return ans
@@ -101,6 +101,12 @@ class CheckForUpdates(Thread):
         self.shutdown_event.set()
 
 
+def version_key(calibre_version):
+    if calibre_version.count('.') > 1:
+        calibre_version = calibre_version.rpartition('.')[0]
+    return 'update to version %s' % calibre_version
+
+
 class UpdateNotification(QDialog):
 
     def __init__(self, calibre_version, plugin_updates, parent=None):
@@ -143,7 +149,7 @@ class UpdateNotification(QDialog):
         self.l.addWidget(self.bb, 2, 0, 1, -1)
         self.bb.accepted.connect(self.accept)
         self.bb.rejected.connect(self.reject)
-        dynamic.set('update to version %s'%calibre_version, False)
+        dynamic.set(version_key(calibre_version), False)
 
     def get_plugins(self):
         from calibre.gui2.dialogs.plugin_updater import (PluginUpdaterDialog,
@@ -151,6 +157,12 @@ class UpdateNotification(QDialog):
         d = PluginUpdaterDialog(self.parent(),
                 initial_filter=FILTER_UPDATE_AVAILABLE)
         d.exec_()
+        if d.do_restart:
+            QDialog.accept(self)
+            from calibre.gui2.ui import get_gui
+            gui = get_gui()
+            if gui is not None:
+                gui.quit(restart=True)
 
     def show_future(self, *args):
         config.set('new_version_notification', bool(self.cb.isChecked()))
@@ -202,8 +214,7 @@ class UpdateMixin(object):
         self.status_bar.update_label.setVisible(True)
 
         if has_calibre_update:
-            if (force or (config.get('new_version_notification') and
-                    dynamic.get('update to version %s'%calibre_version, True))):
+            if (force or (config.get('new_version_notification') and dynamic.get(version_key(calibre_version), True))):
                 if not no_show_popup:
                     self._update_notification__ = UpdateNotification(calibre_version,
                             number_of_plugin_updates, parent=self)

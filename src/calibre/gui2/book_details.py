@@ -57,7 +57,7 @@ def css():
         val = P('templates/book_details.css', data=True).decode('utf-8')
         col = QApplication.instance().palette().color(QPalette.Link).name()
         val = val.replace('LINK_COLOR', col)
-        _css = re.sub(ur'/\*.*?\*/', '', val, flags=re.DOTALL)
+        _css = re.sub(unicode(r'/\*.*?\*/'), u'', val, flags=re.DOTALL)
     return _css
 
 
@@ -204,6 +204,7 @@ def details_context_menu_event(view, ev, book_info):  # {{{
     menu.addAction(QIcon(I('edit-copy.png')), _('Copy &all'), partial(copy_all, book_info))
     search_internet_added = False
     if not r.isNull():
+        from calibre.ebooks.oeb.polish.main import SUPPORTED
         if url.startswith('format:'):
             parts = url.split(':')
             try:
@@ -213,7 +214,6 @@ def details_context_menu_event(view, ev, book_info):  # {{{
                 traceback.print_exc()
             else:
                 from calibre.gui2.ui import get_gui
-                from calibre.ebooks.oeb.polish.main import SUPPORTED
                 db = get_gui().current_db.new_api
                 ofmt = fmt.upper() if fmt.startswith('ORIGINAL_') else 'ORIGINAL_' + fmt
                 nfmt = ofmt[len('ORIGINAL_'):]
@@ -240,7 +240,11 @@ def details_context_menu_event(view, ev, book_info):  # {{{
                 if not fmt.upper().startswith('ORIGINAL_'):
                     from calibre.gui2.open_with import populate_menu, edit_programs
                     m = QMenu(_('Open %s with...') % fmt.upper())
-                    populate_menu(m, partial(book_info.open_with, book_id, fmt), fmt)
+
+                    def connect_action(ac, entry):
+                        connect_lambda(ac.triggered, book_info, lambda book_info: book_info.open_with(book_id, fmt, entry))
+
+                    populate_menu(m, connect_action, fmt)
                     if len(m.actions()) == 0:
                         menu.addAction(_('Open %s with...') % fmt.upper(), partial(book_info.choose_open_with, book_id, fmt))
                     else:
@@ -249,6 +253,9 @@ def details_context_menu_event(view, ev, book_info):  # {{{
                         m.addAction(_('Edit Open With applications...'), partial(edit_programs, fmt, book_info))
                         menu.addMenu(m)
                         menu.ow = m
+                    if fmt.upper() in SUPPORTED:
+                        menu.addSeparator()
+                        menu.addAction(_('Edit %s...') % fmt.upper(), partial(book_info.edit_fmt, book_id, fmt))
                 ac = book_info.copy_link_action
                 ac.current_url = r.linkElement().attribute('data-full-path')
                 if ac.current_url:
@@ -282,9 +289,11 @@ def details_context_menu_event(view, ev, book_info):  # {{{
                 except Exception:
                     field = value = book_id = None
                 if field:
-                    if author is None and (
-                            field in ('tags', 'series', 'publisher') or is_category(field)):
-                        menu.addAction(init_manage_action(book_info.manage_action, field, value))
+                    if author is None:
+                        if field in ('tags', 'series', 'publisher') or is_category(field):
+                            menu.addAction(init_manage_action(book_info.manage_action, field, value))
+                        elif field == 'identifiers':
+                            menu.addAction(book_info.edit_identifiers_action)
                     ac = book_info.remove_item_action
                     ac.data = (field, value, book_id)
                     ac.setText(_('Remove %s from this book') % value)
@@ -423,7 +432,11 @@ class CoverView(QWidget):  # {{{
         save.triggered.connect(self.save_cover)
 
         m = QMenu(_('Open cover with...'))
-        populate_menu(m, self.open_with, 'cover_image')
+
+        def connect_action(ac, entry):
+            connect_lambda(ac.triggered, self, lambda self: self.open_with(entry))
+
+        populate_menu(m, connect_action, 'cover_image')
         if len(m.actions()) == 0:
             cm.addAction(_('Open cover with...'), self.choose_open_with)
         else:
@@ -535,6 +548,8 @@ class BookInfo(QWebView):
     copy_link = pyqtSignal(object)
     manage_category = pyqtSignal(object, object)
     open_fmt_with = pyqtSignal(int, object, object)
+    edit_book = pyqtSignal(int, object)
+    edit_identifiers = pyqtSignal()
 
     def __init__(self, vertical, parent=None):
         QWebView.__init__(self, parent)
@@ -563,6 +578,8 @@ class BookInfo(QWebView):
         self.manage_action = QAction(self)
         self.manage_action.current_fmt = self.manage_action.current_url = None
         self.manage_action.triggered.connect(self.manage_action_triggered)
+        self.edit_identifiers_action = QAction(QIcon(I('identifiers.png')), _('Edit identifiers for this book'), self)
+        self.edit_identifiers_action.triggered.connect(self.edit_identifiers)
         self.remove_item_action = ac = QAction(QIcon(I('minus.png')), '...', self)
         ac.data = (None, None, None)
         ac.triggered.connect(self.remove_item_triggered)
@@ -639,6 +656,9 @@ class BookInfo(QWebView):
         entry = choose_program(fmt, self)
         if entry is not None:
             self.open_with(book_id, fmt, entry)
+
+    def edit_fmt(self, book_id, fmt):
+        self.edit_book.emit(book_id, fmt)
 
 
 # }}}
@@ -753,7 +773,9 @@ class BookDetails(QWidget):  # {{{
     cover_removed = pyqtSignal(object)
     view_device_book = pyqtSignal(object)
     manage_category = pyqtSignal(object, object)
+    edit_identifiers = pyqtSignal()
     open_fmt_with = pyqtSignal(int, object, object)
+    edit_book = pyqtSignal(int, object)
 
     # Drag 'n drop {{{
 
@@ -823,12 +845,14 @@ class BookDetails(QWidget):  # {{{
         self.book_info.remove_format.connect(self.remove_specific_format)
         self.book_info.remove_item.connect(self.remove_metadata_item)
         self.book_info.open_fmt_with.connect(self.open_fmt_with)
+        self.book_info.edit_book.connect(self.edit_book)
         self.book_info.save_format.connect(self.save_specific_format)
         self.book_info.restore_format.connect(self.restore_specific_format)
         self.book_info.set_cover_format.connect(self.set_cover_from_format)
         self.book_info.compare_format.connect(self.compare_specific_format)
         self.book_info.copy_link.connect(self.copy_link)
         self.book_info.manage_category.connect(self.manage_category)
+        self.book_info.edit_identifiers.connect(self.edit_identifiers)
         self.setCursor(Qt.PointingHandCursor)
 
     def search_internet(self, data):

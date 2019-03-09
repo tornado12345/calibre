@@ -2,8 +2,6 @@
 # License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-from functools import partial
-
 from PyQt5.Qt import (
     QBrush, QCheckBox, QCoreApplication, QDialog, QGridLayout, QHBoxLayout, QIcon,
     QKeySequence, QLabel, QListView, QModelIndex, QPalette, QPixmap, QPushButton,
@@ -40,14 +38,14 @@ class Configure(Dialog):
         h.addWidget(fdo)
         v = QVBoxLayout()
         self.mub = b = QToolButton(self)
-        b.clicked.connect(partial(move_field_up, fdo, self.model))
+        connect_lambda(b.clicked, self, lambda self: move_field_up(fdo, self.model))
         b.setIcon(QIcon(I('arrow-up.png')))
         b.setToolTip(_('Move the selected field up'))
         v.addWidget(b), v.addStretch(10)
         self.mud = b = QToolButton(self)
         b.setIcon(QIcon(I('arrow-down.png')))
         b.setToolTip(_('Move the selected field down'))
-        b.clicked.connect(partial(move_field_down, fdo, self.model))
+        connect_lambda(b.clicked, self, lambda self: move_field_down(fdo, self.model))
         v.addWidget(b)
         h.addLayout(v)
 
@@ -57,8 +55,18 @@ class Configure(Dialog):
 
         b = self.bb.addButton(_('Restore &defaults'), self.bb.ActionRole)
         b.clicked.connect(self.restore_defaults)
+        b = self.bb.addButton(_('Select &all'), self.bb.ActionRole)
+        b.clicked.connect(self.select_all)
+        b = self.bb.addButton(_('Select &none'), self.bb.ActionRole)
+        b.clicked.connect(self.select_none)
         self.l.addWidget(self.bb)
         self.setMinimumHeight(500)
+
+    def select_all(self):
+        self.model.toggle_all(True)
+
+    def select_none(self):
+        self.model.toggle_all(False)
 
     def restore_defaults(self):
         self.model.initialize(use_defaults=True)

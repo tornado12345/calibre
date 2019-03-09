@@ -2,7 +2,7 @@
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
-from future_builtins import map
+from polyglot.builtins import map
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -111,6 +111,10 @@ class BuildTest(unittest.TestCase):
         for obj in ({1:1}, utcnow()):
             s = msgpack_dumps(obj)
             self.assertEqual(obj, msgpack_loads(s))
+        self.assertEqual(type(msgpack_loads(msgpack_dumps(b'b'))), bytes)
+        self.assertEqual(type(msgpack_loads(msgpack_dumps(u'b'))), type(u''))
+        large = b'x' * (100 * 1024 * 1024)
+        msgpack_loads(msgpack_dumps(large))
 
     @unittest.skipUnless(isosx, 'FSEvents only present on OS X')
     def test_fsevents(self):
@@ -265,10 +269,19 @@ class BuildTest(unittest.TestCase):
         del readline
 
     def test_markdown(self):
-        from calibre.ebooks.markdown import Markdown
-        Markdown(extensions=['extra'])
+        from calibre.ebooks.txt.processor import create_markdown_object
+        from calibre.ebooks.conversion.plugins.txt_input import MD_EXTENSIONS
+        create_markdown_object(sorted(MD_EXTENSIONS))
         from calibre.library.comments import sanitize_comments_html
         sanitize_comments_html(b'''<script>moo</script>xxx<img src="http://moo.com/x.jpg">''')
+
+    def test_feedparser(self):
+        from calibre.web.feeds.feedparser import parse
+        # sgmllib is needed for feedparser parsing malformed feeds
+        # on python3 you can get it by taking it from python2 stdlib and
+        # running 2to3 on it
+        import sgmllib
+        sgmllib, parse
 
     def test_openssl(self):
         import ssl

@@ -112,6 +112,9 @@ def register_text_editor_actions(_reg, palette):
     ac = reg('code.png', _('Insert &tag'), ('insert_tag',), 'insert-tag', ('Ctrl+<'), _('Insert tag'), syntaxes=('html', 'xml'))
     ac.setToolTip(_('<h3>Insert tag</h3>Insert a tag, if some text is selected the tag will be inserted around the selected text'))
 
+    ac = reg('trash.png', _('Remove &tag'), ('remove_tag',), 'remove-tag', ('Ctrl+>'), _('Remove tag'), syntaxes=('html', 'xml'))
+    ac.setToolTip(_('<h3>Remove tag</h3>Remove the currently highlighted tag'))
+
     editor_toolbar_actions['html']['fix-html-current'] = actions['fix-html-current']
     for s in ('xml', 'html', 'css'):
         editor_toolbar_actions[s]['pretty-current'] = actions['pretty-current']
@@ -231,8 +234,8 @@ class Editor(QMainWindow):
     def insert_image(self, href, fullpage=False, preserve_aspect_ratio=False, width=-1, height=-1):
         self.editor.insert_image(href, fullpage=fullpage, preserve_aspect_ratio=preserve_aspect_ratio, width=width, height=height)
 
-    def insert_hyperlink(self, href, text):
-        self.editor.insert_hyperlink(href, text)
+    def insert_hyperlink(self, href, text, template=None):
+        self.editor.insert_hyperlink(href, text, template=template)
 
     def _build_insert_tag_button_menu(self):
         m = self.insert_tag_menu

@@ -11,7 +11,7 @@ import re
 from urlparse import urlparse
 from collections import Counter, OrderedDict
 from functools import partial
-from future_builtins import map
+from polyglot.builtins import map
 from operator import itemgetter
 
 from lxml import etree
@@ -77,6 +77,19 @@ class TOC(object):
             yield child
             for gc in child.iterdescendants():
                 yield gc
+
+    def remove_duplicates(self, only_text=True):
+        seen = set()
+        remove = []
+        for child in self:
+            key = child.title if only_text else (child.title, child.dest, (child.frag or None))
+            if key in seen:
+                remove.append(child)
+            else:
+                seen.add(key)
+                child.remove_duplicates()
+        for child in remove:
+            self.remove(child)
 
     @property
     def depth(self):
@@ -468,7 +481,10 @@ def from_links(container):
             href = a.get('href')
             if not href or not href.strip():
                 continue
-            dest = container.href_to_name(href, base=name)
+            if href.startswith('#'):
+                dest = name
+            else:
+                dest = container.href_to_name(href, base=name)
             frag = href.rpartition('#')[-1] or None
             if (dest, frag) in seen_dests:
                 continue
@@ -655,14 +671,22 @@ def ensure_single_nav_of_type(root, ntype='toc'):
     return nav
 
 
-def commit_nav_toc(container, toc, lang=None, landmarks=None):
+def commit_nav_toc(container, toc, lang=None, landmarks=None, previous_nav=None):
     from calibre.ebooks.oeb.polish.pretty import pretty_xml_tree
     tocname = find_existing_nav_toc(container)
+    if previous_nav is not None:
+        nav_name = container.href_to_name(previous_nav[0])
+        if nav_name and container.exists(nav_name):
+            tocname = nav_name
+            container.apply_unique_properties(tocname, 'nav')
     if tocname is None:
         item = container.generate_item('nav.xhtml', id_prefix='nav')
         item.set('properties', 'nav')
         tocname = container.href_to_name(item.get('href'), base=container.opf_name)
-        root = container.parse_xhtml(P('templates/new_nav.html', data=True).decode('utf-8'))
+        if previous_nav is not None:
+            root = previous_nav[1]
+        else:
+            root = container.parse_xhtml(P('templates/new_nav.html', data=True).decode('utf-8'))
         container.replace(tocname, root)
     else:
         root = container.parsed(tocname)

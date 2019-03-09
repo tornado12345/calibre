@@ -10,7 +10,7 @@ __docformat__ = 'restructuredtext en'
 import os, weakref, shutil, textwrap
 from collections import OrderedDict
 from functools import partial
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import (QDialog, QGridLayout, QIcon, QCheckBox, QLabel, QFrame,
                       QApplication, QDialogButtonBox, Qt, QSize, QSpacerItem,
@@ -96,7 +96,8 @@ class Polish(QDialog):  # {{{
             count += 1
             x = QCheckBox(text, self)
             x.setChecked(prefs.get(name, False))
-            x.stateChanged.connect(partial(self.option_toggled, name))
+            x.setObjectName(name)
+            connect_lambda(x.stateChanged, self, lambda self, state: self.option_toggled(self.sender().objectName(), state))
             l.addWidget(x, count, 0, 1, 1)
             setattr(self, 'opt_'+name, x)
             la = QLabel(' <a href="#%s">%s</a>'%(name, _('About')))
@@ -132,9 +133,9 @@ class Polish(QDialog):  # {{{
         self.load_menu = QMenu(lb)
         lb.setMenu(self.load_menu)
         self.all_button = b = bb.addButton(_('Select &all'), bb.ActionRole)
-        b.clicked.connect(partial(self.select_all, True))
+        connect_lambda(b.clicked, self, lambda self: self.select_all(True))
         self.none_button = b = bb.addButton(_('Select &none'), bb.ActionRole)
-        b.clicked.connect(partial(self.select_all, False))
+        connect_lambda(b.clicked, self, lambda self: self.select_all(False))
         l.addWidget(bb, count+1, 1, 1, -1)
         self.setup_load_button()
 
@@ -257,7 +258,7 @@ class Polish(QDialog):  # {{{
             self.jobs = []
             self.pd.reject()
             return
-        num, book_id = self.queue.pop()
+        num, book_id = self.queue.pop(0)
         try:
             self.do_book(num, book_id, self.book_id_map[book_id])
         except:
@@ -288,9 +289,13 @@ class Polish(QDialog):  # {{{
                 db.copy_format_to(book_id, fmt, f, index_is_id=True)
                 data['files'].append(f.name)
 
+        nums = num
+        if hasattr(self, 'pd'):
+            nums = self.pd.max - num
+
         desc = ngettext(_('Polish %s')%mi.title,
                         _('Polish book %(nums)s of %(tot)s (%(title)s)')%dict(
-                            nums=num, tot=len(self.book_id_map),
+                            nums=nums, tot=len(self.book_id_map),
                             title=mi.title), len(self.book_id_map))
         if hasattr(self, 'pd'):
             self.pd.set_msg(_('Queueing book %(nums)s of %(tot)s (%(title)s)')%dict(
@@ -434,6 +439,7 @@ class PolishAction(InterfaceAction):
     def location_selected(self, loc):
         enabled = loc == 'library'
         self.qaction.setEnabled(enabled)
+        self.menuless_qaction.setEnabled(enabled)
 
     def get_books_for_polishing(self):
         rows = [r.row() for r in

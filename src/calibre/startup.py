@@ -1,3 +1,4 @@
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -9,14 +10,14 @@ Perform various initialization tasks.
 import locale, sys
 
 # Default translation is NOOP
-import __builtin__
-__builtin__.__dict__['_'] = lambda s: s
+from polyglot.builtins import builtins
+builtins.__dict__['_'] = lambda s: s
 
 # For strings which belong in the translation tables, but which shouldn't be
 # immediately translated to the environment language
-__builtin__.__dict__['__'] = lambda s: s
+builtins.__dict__['__'] = lambda s: s
 
-from calibre.constants import iswindows, preferred_encoding, plugins, isosx, islinux, isfrozen, DEBUG
+from calibre.constants import iswindows, preferred_encoding, plugins, isosx, islinux, isfrozen, DEBUG, isfreebsd
 
 _run_once = False
 winutil = winutilerror = None
@@ -36,6 +37,20 @@ if not _run_once:
                 raise ImportError('Importing PyQt4 is not allowed as calibre uses PyQt5')
 
         sys.meta_path.insert(0, PyQt4Ban())
+
+    class DeVendor(object):
+
+        def find_module(self, fullname, path=None):
+            if fullname == 'calibre.web.feeds.feedparser' or fullname.startswith('calibre.ebooks.markdown'):
+                return self
+
+        def load_module(self, fullname):
+            from importlib import import_module
+            if fullname == 'calibre.web.feeds.feedparser':
+                return import_module('feedparser')
+            return import_module(fullname[len('calibre.ebooks.'):])
+
+    sys.meta_path.insert(0, DeVendor())
 
     #
     # Platform specific modules
@@ -146,43 +161,53 @@ if not _run_once:
                 supports_mode_e = True
             return ans
 
-    __builtin__.__dict__['lopen'] = local_open
+    builtins.__dict__['lopen'] = local_open
 
     from calibre.utils.icu import title_case, lower as icu_lower, upper as icu_upper
-    __builtin__.__dict__['icu_lower'] = icu_lower
-    __builtin__.__dict__['icu_upper'] = icu_upper
-    __builtin__.__dict__['icu_title'] = title_case
+    builtins.__dict__['icu_lower'] = icu_lower
+    builtins.__dict__['icu_upper'] = icu_upper
+    builtins.__dict__['icu_title'] = title_case
 
-    if islinux:
+    def connect_lambda(bound_signal, self, func, **kw):
+        import weakref
+        r = weakref.ref(self)
+        del self
+        num_args = func.__code__.co_argcount - 1
+        if num_args < 0:
+            raise TypeError('lambda must take at least one argument')
+
+        def slot(*args):
+            ctx = r()
+            if ctx is not None:
+                if len(args) != num_args:
+                    args = args[:num_args]
+                func(ctx, *args)
+
+        bound_signal.connect(slot, **kw)
+    builtins.__dict__['connect_lambda'] = connect_lambda
+
+    if islinux or isosx or isfreebsd:
         # Name all threads at the OS level created using the threading module, see
         # http://bugs.python.org/issue15500
-        import ctypes, ctypes.util, threading
-        libpthread_path = ctypes.util.find_library("pthread")
-        if libpthread_path:
-            libpthread = ctypes.CDLL(libpthread_path)
-            if hasattr(libpthread, "pthread_setname_np"):
-                pthread_setname_np = libpthread.pthread_setname_np
-                pthread_setname_np.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-                pthread_setname_np.restype = ctypes.c_int
-                orig_start = threading.Thread.start
+        import threading
 
-                def new_start(self):
-                    orig_start(self)
-                    try:
+        orig_start = threading.Thread.start
+
+        def new_start(self):
+            orig_start(self)
+            try:
+                name = self.name
+                if not name or name.startswith('Thread-'):
+                    name = self.__class__.__name__
+                    if name == 'Thread':
                         name = self.name
-                        if not name or name.startswith('Thread-'):
-                            name = self.__class__.__name__
-                            if name == 'Thread':
-                                name = self.name
-                        if name:
-                            if isinstance(name, unicode):
-                                name = name.encode('ascii', 'replace')
-                            ident = getattr(self, "ident", None)
-                            if ident is not None:
-                                pthread_setname_np(ident, name[:15])
-                    except Exception:
-                        pass  # Don't care about failure to set name
-                threading.Thread.start = new_start
+                if name:
+                    if isinstance(name, unicode):
+                        name = name.encode('ascii', 'replace').decode('ascii')
+                    plugins['speedup'][0].set_thread_name(name[:15])
+            except Exception:
+                pass  # Don't care about failure to set name
+        threading.Thread.start = new_start
 
 
 def test_lopen():
@@ -211,19 +236,19 @@ def test_lopen():
         with copen(n, 'w') as f:
             f.write('one')
 
-        print 'O_CREAT tested'
+        print('O_CREAT tested')
         with copen(n, 'w+b') as f:
             f.write('two')
         with copen(n, 'r') as f:
             if f.read() == 'two':
-                print 'O_TRUNC tested'
+                print('O_TRUNC tested')
             else:
                 raise Exception('O_TRUNC failed')
         with copen(n, 'ab') as f:
             f.write('three')
         with copen(n, 'r+') as f:
             if f.read() == 'twothree':
-                print 'O_APPEND tested'
+                print('O_APPEND tested')
             else:
                 raise Exception('O_APPEND failed')
         with copen(n, 'r+') as f:
@@ -231,6 +256,6 @@ def test_lopen():
             f.write('xxxxx')
             f.seek(0)
             if f.read() == 'twoxxxxx':
-                print 'O_RANDOM tested'
+                print('O_RANDOM tested')
             else:
                 raise Exception('O_RANDOM failed')

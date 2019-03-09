@@ -652,6 +652,11 @@ class LibraryPage(QWizardPage, LibraryUI):
         self.init_languages()
         self.language.currentIndexChanged[int].connect(self.change_language)
         self.location.textChanged.connect(self.location_text_changed)
+        self.move_lib_label.setText(_(
+            'If you are moving calibre from an old computer to a new one,'
+            ' please read <a href="{0}">the instructions</a>.').format(
+                localize_user_manual_link(
+        'https://manual.calibre-ebook.com/faq.html#how-do-i-move-my-calibre-data-from-one-computer-to-another')))
 
     def location_text_changed(self, newtext):
         self.completeChanged.emit()
@@ -684,8 +689,8 @@ class LibraryPage(QWizardPage, LibraryUI):
 
     def change_language(self, idx):
         prefs['language'] = str(self.language.itemData(self.language.currentIndex()) or '')
-        import __builtin__
-        __builtin__.__dict__['_'] = lambda(x): x
+        from polyglot.builtins import builtins
+        builtins.__dict__['_'] = lambda x: x
         from calibre.utils.localization import set_translators
         from calibre.gui2 import qt_app
         from calibre.ebooks.metadata.book.base import reset_field_metadata
@@ -726,8 +731,7 @@ class LibraryPage(QWizardPage, LibraryUI):
         x = choose_dir(self, 'database location dialog',
                          _('Select location for books'))
         if x:
-            if (iswindows and len(x) >
-                    LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT):
+            if (iswindows and len(x) > LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT):
                 return error_dialog(self, _('Too long'),
                     _('Path to library too long. Must be less than'
                     ' %d characters.')%(LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT),
@@ -764,13 +768,6 @@ class LibraryPage(QWizardPage, LibraryUI):
                 base = os.path.expanduser(u'~')
             except ValueError:
                 base = QDir.homePath().replace('/', os.sep)
-            if iswindows:
-                try:
-                    x = winutil.special_folder_path(winutil.CSIDL_PERSONAL)
-                except ValueError:
-                    x = QDir.homePath().replace('/', os.sep)
-                if x and os.access(x, os.W_OK):
-                    base = x
 
             lp = os.path.join(base, fname)
             self.default_library_name = lp
@@ -852,7 +849,7 @@ class Wizard(QWizard):
 
     def __init__(self, parent):
         QWizard.__init__(self, parent)
-        self.setWindowTitle(__appname__+' '+_('welcome wizard'))
+        self.setWindowTitle(__appname__+' '+_('Welcome wizard'))
         self.setPixmap(self.LogoPixmap, QIcon(I('library.png')).pixmap(48, 48))
         self.setWizardStyle(self.ModernStyle)
         self.device_page = DevicePage()

@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 import math, json
 from base64 import b64encode
 from functools import partial
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import (
     QSize, QSizePolicy, QUrl, Qt, QPainter, QPalette, QBrush,
@@ -699,8 +699,7 @@ class DocumentView(QWebView):  # {{{
         table = None
         parent = elem
         while not parent.isNull():
-            if (unicode(parent.tagName()) == u'table' or
-                unicode(parent.localName()) == u'table'):
+            if (unicode(parent.tagName()) == u'table' or unicode(parent.localName()) == u'table'):
                 table = parent
                 break
             parent = parent.parent()
@@ -822,8 +821,7 @@ class DocumentView(QWebView):  # {{{
 
     @property
     def scroll_pos(self):
-        return (self.document.ypos, self.document.ypos +
-                self.document.window_height)
+        return (self.document.ypos, self.document.ypos + self.document.window_height)
 
     @property
     def viewport_rect(self):
@@ -856,7 +854,10 @@ class DocumentView(QWebView):  # {{{
             self.link_clicked(qurl)
             return
         path = qurl.toLocalFile()
-        self.link_clicked(self.as_url(path))
+        link = self.as_url(path)
+        if qurl.hasFragment():
+            link.setFragment(qurl.fragment(QUrl.FullyEncoded), QUrl.StrictMode)
+        self.link_clicked(link)
 
     def sizeHint(self):
         return self._size_hint
@@ -1336,8 +1337,7 @@ class DocumentView(QWebView):  # {{{
                 self.paged_col_scroll(scroll_past_end=not
                         self.document.line_scrolling_stops_on_pagebreaks)
             else:
-                if (not self.document.line_scrolling_stops_on_pagebreaks and
-                        self.document.at_bottom):
+                if (not self.document.line_scrolling_stops_on_pagebreaks and self.document.at_bottom):
                     self.manager.next_document()
                 else:
                     amt = int((self.document.line_scroll_fraction / 100.) * 15)
@@ -1347,8 +1347,7 @@ class DocumentView(QWebView):  # {{{
                 self.paged_col_scroll(forward=False, scroll_past_end=not
                         self.document.line_scrolling_stops_on_pagebreaks)
             else:
-                if (not self.document.line_scrolling_stops_on_pagebreaks and
-                        self.document.at_top):
+                if (not self.document.line_scrolling_stops_on_pagebreaks and self.document.at_top):
                     self.manager.previous_document()
                 else:
                     amt = int((self.document.line_scroll_fraction / 100.) * 15)

@@ -9,11 +9,14 @@ __docformat__ = 'restructuredtext en'
 
 import weakref
 
-import sip
 from PyQt5.Qt import (
     QLineEdit, QAbstractListModel, Qt, pyqtSignal, QObject, QKeySequence,
     QApplication, QListView, QPoint, QModelIndex, QFont, QFontInfo,
     QStyleOptionComboBox, QStyle, QComboBox, QTimer)
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
 
 from calibre.constants import isosx, get_osx_version
 from calibre.utils.icu import sort_key, primary_startswith, primary_contains
@@ -155,8 +158,7 @@ class Completer(QListView):  # {{{
         if widget is None:
             return
         screen = QApplication.desktop().availableGeometry(widget)
-        h = (p.sizeHintForRow(0) * min(self.max_visible_items, m.rowCount()) +
-                3) + 3
+        h = (p.sizeHintForRow(0) * min(self.max_visible_items, m.rowCount()) + 3) + 3
         hsb = p.horizontalScrollBar()
         if hsb and hsb.isVisible():
             h += hsb.sizeHint().height()
@@ -198,9 +200,9 @@ class Completer(QListView):  # {{{
 
     def debug_event(self, ev):
         from calibre.gui2 import event_type_name
-        print ('Event:', event_type_name(ev))
+        print('Event:', event_type_name(ev))
         if ev.type() in (ev.KeyPress, ev.ShortcutOverride, ev.KeyRelease):
-            print ('\tkey:', QKeySequence(ev.key()).toString())
+            print('\tkey:', QKeySequence(ev.key()).toString())
 
     def eventFilter(self, obj, e):
         'Redirect key presses from the popup to the widget'
@@ -351,9 +353,12 @@ class LineEdit(QLineEdit, LineEditECM):
 
     def event(self, ev):
         # See https://bugreports.qt.io/browse/QTBUG-46911
-        if ev.type() == ev.ShortcutOverride and (
-                ev.key() in (Qt.Key_Left, Qt.Key_Right) and (ev.modifiers() & ~Qt.KeypadModifier) == Qt.ControlModifier):
-            ev.accept()
+        try:
+            if ev.type() == ev.ShortcutOverride and (
+                    ev.key() in (Qt.Key_Left, Qt.Key_Right) and (ev.modifiers() & ~Qt.KeypadModifier) == Qt.ControlModifier):
+                ev.accept()
+        except AttributeError:
+            pass
         return QLineEdit.event(self, ev)
 
     def complete(self, show_all=False, select_first=True):

@@ -407,7 +407,7 @@ class BasicNewsRecipe(Recipe):
         :param url: The URL to be followed
         :param tag: The tag from which the URL was derived
         '''
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def get_extra_css(self):
         '''
@@ -483,7 +483,7 @@ class BasicNewsRecipe(Recipe):
     def get_browser(self, *args, **kwargs):
         '''
         Return a browser instance used to fetch documents from the web. By default
-        it returns a `mechanize <https://github.com/jjlee/mechanize>`_
+        it returns a `mechanize <https://mechanize.readthedocs.io/en/latest/>`_
         browser instance that supports cookies, ignores robots.txt, handles
         refreshes and has a mozilla firefox user agent.
 
@@ -657,7 +657,7 @@ class BasicNewsRecipe(Recipe):
             return frozenset()
         return frozenset([(parts.netloc, (parts.path or '').rstrip('/'))])
 
-    def index_to_soup(self, url_or_raw, raw=False, as_tree=False):
+    def index_to_soup(self, url_or_raw, raw=False, as_tree=False, save_raw=None):
         '''
         Convenience method that takes an URL to the index page and returns
         a `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_
@@ -692,6 +692,9 @@ class BasicNewsRecipe(Recipe):
         else:
             _raw = xml_to_unicode(_raw, strip_encoding_pats=True, resolve_entities=True)[0]
         _raw = clean_xml_chars(_raw)
+        if save_raw:
+            with lopen(save_raw, 'wb') as f:
+                f.write(_raw.encode('utf-8'))
         if as_tree:
             from html5_parser import parse
             return parse(_raw)
@@ -890,8 +893,8 @@ class BasicNewsRecipe(Recipe):
         self.report_progress = progress_reporter
 
         if self.needs_subscription and (
-                self.username is None or self.password is None or
-                (not self.username and not self.password)):
+                self.username is None or self.password is None or (
+                    not self.username and not self.password)):
             if self.needs_subscription != 'optional':
                 raise ValueError(_('The "%s" recipe needs a username and password.')%self.title)
 
@@ -1432,8 +1435,8 @@ class BasicNewsRecipe(Recipe):
         desc = self.description
         if not isinstance(desc, unicode):
             desc = desc.decode('utf-8', 'replace')
-        mi.comments = (_('Articles in this issue:') + '\n\n' +
-                '\n\n'.join(article_titles)) + '\n\n' + desc
+        mi.comments = (_('Articles in this issue:'
+            ) + '\n\n' + '\n\n'.join(article_titles)) + '\n\n' + desc
 
         language = canonicalize_lang(self.language)
         if language is not None:
@@ -1633,8 +1636,7 @@ class BasicNewsRecipe(Recipe):
                 parsed_feeds.append(feed)
                 self.log.exception(msg)
 
-        remove = [fl for fl in parsed_feeds if len(fl) == 0 and
-                self.remove_empty_feeds]
+        remove = [fl for fl in parsed_feeds if len(fl) == 0 and self.remove_empty_feeds]
         for f in remove:
             parsed_feeds.remove(f)
 
@@ -1682,7 +1684,7 @@ class BasicNewsRecipe(Recipe):
 
     @classmethod
     def soup(cls, raw):
-        entity_replace = [(re.compile(ur'&(\S+?);'), partial(entity_to_unicode,
+        entity_replace = [(re.compile(u'&(\\S+?);'), partial(entity_to_unicode,
                                                            exceptions=[]))]
         nmassage = list(BeautifulSoup.MARKUP_MASSAGE)
         nmassage.extend(entity_replace)

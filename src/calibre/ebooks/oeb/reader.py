@@ -2,6 +2,7 @@
 Container-/OPF-based input OEBBook reader.
 """
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.com>'
@@ -184,7 +185,7 @@ class OEBReader(object):
         return bad
 
     def _manifest_add_missing(self, invalid):
-        import cssutils
+        import css_parser
         manifest = self.oeb.manifest
         known = set(manifest.hrefs)
         unchecked = set(manifest.values())
@@ -194,8 +195,7 @@ class OEBReader(object):
             new = set()
             for item in unchecked:
                 data = None
-                if (item.media_type in cdoc or
-                        item.media_type[-4:] in ('/xml', '+xml')):
+                if (item.media_type in cdoc or item.media_type[-4:] in ('/xml', '+xml')):
                     try:
                         data = item.data
                     except:
@@ -206,8 +206,7 @@ class OEBReader(object):
                 if data is None:
                     continue
 
-                if (item.media_type in OEB_DOCS or
-                        item.media_type[-4:] in ('/xml', '+xml')):
+                if (item.media_type in OEB_DOCS or item.media_type[-4:] in ('/xml', '+xml')):
                     hrefs = [r[2] for r in iterlinks(data)]
                     for href in hrefs:
                         if isinstance(href, bytes):
@@ -226,7 +225,7 @@ class OEBReader(object):
                             new.add(href)
                 elif item.media_type in OEB_STYLES:
                     try:
-                        urls = list(cssutils.getUrls(data))
+                        urls = list(css_parser.getUrls(data))
                     except:
                         urls = []
                     for url in urls:
@@ -320,7 +319,10 @@ class OEBReader(object):
             extras.update(new)
             unchecked = new
         version = int(self.oeb.version[0])
+        removed_items_to_ignore = getattr(self.oeb, 'removed_items_to_ignore', ())
         for item in sorted(extras):
+            if item.href in removed_items_to_ignore:
+                continue
             if version >= 2:
                 self.logger.warn(
                     'Spine-referenced file %r not in spine' % item.href)
@@ -335,7 +337,7 @@ class OEBReader(object):
                 self.logger.warn(u'Spine item %r not found' % idref)
                 continue
             item = manifest.ids[idref]
-            if item.media_type.lower() in OEB_DOCS and hasattr(item.data, 'xpath'):
+            if item.media_type.lower() in OEB_DOCS and hasattr(item.data, 'xpath') and not getattr(item.data, 'tag', '').endswith('}ncx'):
                 spine.add(item, elem.get('linear'))
             else:
                 if hasattr(item.data, 'tag') and item.data.tag and item.data.tag.endswith('}html'):
@@ -714,9 +716,9 @@ def main(argv=sys.argv):
     for arg in argv[1:]:
         oeb = reader(OEBBook(), arg)
         for name, doc in oeb.to_opf1().values():
-            print etree.tostring(doc, pretty_print=True)
+            print(etree.tostring(doc, pretty_print=True))
         for name, doc in oeb.to_opf2(page_map=True).values():
-            print etree.tostring(doc, pretty_print=True)
+            print(etree.tostring(doc, pretty_print=True))
     return 0
 
 
