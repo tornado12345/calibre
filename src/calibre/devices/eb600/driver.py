@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
@@ -323,6 +324,7 @@ class POCKETBOOK301(USBMS):
 class POCKETBOOK602(USBMS):
 
     name = 'PocketBook Pro 602/902 Device Interface'
+    gui_name = 'PocketBook'
     description    = _('Communicate with the PocketBook 515/602/603/902/903/Pro 912 reader.')
     author         = 'Kovid Goyal'
     supported_platforms = ['windows', 'osx', 'linux']
@@ -370,6 +372,7 @@ class POCKETBOOK360P(POCKETBOOK602):
 class POCKETBOOK701(USBMS):
 
     name = 'PocketBook 701 Device Interface'
+    gui_name = 'PocketBook'
     description = _('Communicate with the PocketBook 701')
     author = _('Kovid Goyal')
 
@@ -401,6 +404,7 @@ class POCKETBOOK701(USBMS):
 class POCKETBOOK740(USBMS):
 
     name = 'PocketBook 701 Device Interface'
+    gui_name = 'PocketBook'
     description = _('Communicate with the PocketBook 740')
     supported_platforms = ['windows', 'osx', 'linux']
     FORMATS = ['epub', 'fb2', 'prc', 'mobi', 'pdf', 'djvu', 'rtf', 'chm',

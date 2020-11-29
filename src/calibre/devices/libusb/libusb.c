@@ -115,34 +115,41 @@ static PyObject* get_devices(PyObject *self, PyObject *args) {
     return ans;
 }
 
+static char libusb_doc[] = "Interface to libusb.";
+
 static PyMethodDef libusb_methods[] = {
-    {"get_devices", get_devices, METH_VARARGS,
+    {"get_devices", get_devices, METH_NOARGS,
         "get_devices()\n\nGet the list of USB devices on the system."
     },
 
     {NULL, NULL, 0, NULL}
 };
 
-CALIBRE_MODINIT_FUNC
-initlibusb(void) {
-    PyObject *m;
-
+static int
+exec_module(PyObject *m) {
     // We deliberately use the default context. This is the context used by
     // libmtp and we want to ensure that the busnum/devnum numbers are the same
     // here and for libmtp.
-    if(libusb_init(NULL) != 0) return;
+    if(libusb_init(NULL) != 0) return -1;
 
     Error = PyErr_NewException("libusb.Error", NULL, NULL);
-    if (Error == NULL) return;
-
+    if (Error == NULL) return -1;
     cache = PyDict_New();
-    if (cache == NULL) return;
-
-    m = Py_InitModule3("libusb", libusb_methods, "Interface to libusb.");
-    if (m == NULL) return;
+    if (cache == NULL) return -1;
 
     PyModule_AddObject(m, "Error", Error);
     PyModule_AddObject(m, "cache", cache);
-
+	return 0;
 }
 
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "libusb",
+    .m_doc      = libusb_doc,
+    .m_methods  = libusb_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_libusb(void) { return PyModuleDef_Init(&module_def); }

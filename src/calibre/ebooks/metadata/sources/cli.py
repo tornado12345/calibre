@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -21,6 +20,7 @@ from calibre.ebooks.metadata.sources.base import create_log
 from calibre.ebooks.metadata.sources.identify import identify
 from calibre.ebooks.metadata.sources.covers import download_cover
 from calibre.ebooks.metadata.sources.update import patch_plugins
+from polyglot.builtins import unicode_type
 
 
 def option_parser():
@@ -81,7 +81,7 @@ def main(args=sys.argv):
             allowed_plugins=allowed_plugins or None)
 
     if not results:
-        print (log, file=sys.stderr)
+        prints(buf.getvalue(), file=sys.stderr)
         prints('No results found', file=sys.stderr)
         raise SystemExit(1)
     result = results[0]
@@ -96,15 +96,14 @@ def main(args=sys.argv):
             save_cover_data_to(cover[-1], opts.cover)
             result.cover = cf = opts.cover
 
-    log = buf.getvalue()
-
-    result = (metadata_to_opf(result) if opts.opf else
-                    unicode(result).encode('utf-8'))
-
     if opts.verbose:
-        print (log, file=sys.stderr)
+        prints(buf.getvalue(), file=sys.stderr)
 
-    print (result)
+    if opts.opf:
+        getattr(sys.stdout, 'buffer', sys.stdout).write(metadata_to_opf(result))
+        print()
+    else:
+        prints(unicode_type(result))
     if not opts.opf and opts.cover:
         prints('Cover               :', cf)
 

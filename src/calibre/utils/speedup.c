@@ -121,34 +121,10 @@ static PyObject*
 speedup_detach(PyObject *self, PyObject *args) {
     char *devnull = NULL;
     if (!PyArg_ParseTuple(args, "s", &devnull)) return NULL;
-    if (freopen(devnull, "r", stdin) == NULL) return PyErr_SetFromErrno(PyExc_EnvironmentError);
-    if (freopen(devnull, "w", stdout) == NULL) return PyErr_SetFromErrno(PyExc_EnvironmentError);
-    if (freopen(devnull, "w", stderr) == NULL)  return PyErr_SetFromErrno(PyExc_EnvironmentError);
+    if (freopen(devnull, "r", stdin) == NULL) return PyErr_SetFromErrnoWithFilename(PyExc_OSError, devnull);
+    if (freopen(devnull, "w", stdout) == NULL) return PyErr_SetFromErrnoWithFilename(PyExc_OSError, devnull);
+    if (freopen(devnull, "w", stderr) == NULL)  return PyErr_SetFromErrnoWithFilename(PyExc_OSError, devnull);
     Py_RETURN_NONE;
-}
-
-static PyObject*
-speedup_fdopen(PyObject *self, PyObject *args) {
-    PyObject *ans = NULL;
-    char *name;
-#if PY_MAJOR_VERSION == 2
-    FILE *fp;
-#endif
-    int fd, bufsize = -1;
-    char *mode;
-
-    if (!PyArg_ParseTuple(args, "iss|i", &fd, &name, &mode, &bufsize)) return NULL;
-#if PY_MAJOR_VERSION >= 3
-    ans = PyFile_FromFd(fd, name, mode, bufsize, NULL, NULL, NULL, 1);
-#else
-    fp = fdopen(fd, mode);
-    if (fp == NULL) return PyErr_SetFromErrno(PyExc_OSError);
-    ans = PyFile_FromFile(fp, name, mode, fclose);
-    if (ans != NULL) {
-        PyFile_SetBufSize(ans, bufsize);
-    }
-#endif
-    return ans;
 }
 
 static void calculate_gaussian_kernel(Py_ssize_t size, double *kernel, double radius) {
@@ -323,42 +299,6 @@ error:
 	return Py_BuildValue("NII", ans, state, codep);
 }
 
-// This digs into python internals and can't be implemented easily in python3
-#if PY_MAJOR_VERSION == 2
-static PyObject*
-clean_xml_chars(PyObject *self, PyObject *text) {
-    Py_UNICODE *buf = NULL, ch;
-    PyUnicodeObject *ans = NULL;
-    Py_ssize_t i = 0, j = 0;
-    if (!PyUnicode_Check(text)) {
-        PyErr_SetString(PyExc_TypeError, "A unicode string is required");
-        return NULL;
-    }
-    ans = (PyUnicodeObject*) PyUnicode_FromUnicode(NULL, PyUnicode_GET_SIZE(text));
-    if (ans == NULL) return PyErr_NoMemory();
-    buf = ans->str;
-
-    for (; i < PyUnicode_GET_SIZE(text); i++) {
-        ch = PyUnicode_AS_UNICODE(text)[i];
-#ifdef Py_UNICODE_WIDE
-        if ((0x20 <= ch && ch <= 0xd7ff && ch != 0x7f) || ch == 9 || ch == 10 || ch == 13 || (0xe000 <= ch && ch <= 0xfffd) || (0xffff < ch && ch <= 0x10ffff))
-            buf[j++] = ch;
-#else
-        if ((0x20 <= ch && ch <= 0xd7ff && ch != 0x7f) || ch == 9 || ch == 10 || ch == 13 || (0xd000 <= ch && ch <= 0xfffd)) {
-            if (0xd800 <= ch && ch <= 0xdfff) {
-                // Test for valid surrogate pair
-                if (ch <= 0xdbff && i + 1 < PyUnicode_GET_SIZE(text) && 0xdc00 <= PyUnicode_AS_UNICODE(text)[i + 1] && PyUnicode_AS_UNICODE(text)[i+1] <= 0xdfff) {
-                    buf[j++] = ch; buf[j++] = PyUnicode_AS_UNICODE(text)[++i];
-                }
-            } else
-                buf[j++] = ch;
-        }
-#endif
-    }
-    ans->length = j;
-    return (PyObject*)ans;
-}
-#else
 static PyObject*
 clean_xml_chars(PyObject *self, PyObject *text) {
     PyObject *result = NULL;
@@ -394,8 +334,11 @@ clean_xml_chars(PyObject *self, PyObject *text) {
         // based on https://en.wikipedia.org/wiki/Valid_characters_in_XML#Non-restricted_characters
         // python 3.3+ unicode strings never contain surrogate pairs, since if
         // they did, they would be represented as UTF-32
-        if ((0x20 <= ch && ch <= 0xd7ff && ch != 0x7f) ||
-                ch == 9 || ch == 10 || ch == 13 ||
+        if ((0x20 <= ch && ch <= 0x7e) ||
+                ch == 0x9 || ch == 0xa || ch == 0xd || ch == 0x85 ||
+				(0x00A0 <= ch && ch <= 0xD7FF) ||
+				(0xE000 <= ch && ch <= 0xFDCF) ||
+				(0xFDF0 <= ch && ch <= 0xFFFD) ||
                 (0xffff < ch && ch <= 0x10ffff)) {
             PyUnicode_WRITE(text_kind, result_text, target_i, ch);
             target_i += 1;
@@ -408,7 +351,6 @@ clean_xml_chars(PyObject *self, PyObject *text) {
     free(result_text);
     return result;
 }
-#endif
 
 static PyObject *
 speedup_iso_8601(PyObject *self, PyObject *args) {
@@ -504,6 +446,8 @@ extern int pthread_setname_np(const char *name);
 void pthread_set_name_np(pthread_t tid, const char *name);
 #elif defined(__NetBSD__)
 // pthread.h provides the symbol
+#elif defined(__HAIKU__)
+// Haiku doesn't support pthread_set_name_np yet
 #else
 // Need _GNU_SOURCE for pthread_setname_np on linux and that causes other issues on systems with old glibc
 extern int pthread_setname_np(pthread_t, const char *name);
@@ -514,8 +458,8 @@ extern int pthread_setname_np(pthread_t, const char *name);
 static PyObject*
 set_thread_name(PyObject *self, PyObject *args) {
 	(void)(self); (void)(args);
-#if defined(_MSC_VER)
-	PyErr_SetString(PyExc_RuntimeError, "Setting thread names not supported on Windows");
+#if defined(_MSC_VER) || defined(__HAIKU__)
+	PyErr_SetString(PyExc_RuntimeError, "Setting thread names not supported on on this platform");
 	return NULL;
 #else
 	char *name;
@@ -540,6 +484,48 @@ set_thread_name(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 #endif
 }
+
+#define char_is_ignored(ch) (ch <= 32)
+
+static size_t
+count_chars_in(PyObject *text) {
+	size_t ans = 0;
+	if (PyUnicode_READY(text) != 0) return 0;
+	int kind = PyUnicode_KIND(text);
+	void *data = PyUnicode_DATA(text);
+	Py_ssize_t len = PyUnicode_GET_LENGTH(text);
+	ans = len;
+	for (Py_ssize_t i = 0; i < len; i++) {
+		if (char_is_ignored(PyUnicode_READ(kind, data, i))) ans--;
+	}
+	return ans;
+}
+
+static PyObject*
+get_element_char_length(PyObject *self, PyObject *args) {
+	(void)(self);
+	const char *tag_name;
+	PyObject *text, *tail;
+	if (!PyArg_ParseTuple(args, "sOO", &tag_name, &text, &tail)) return NULL;
+	const char *b = strrchr(tag_name, '}');
+	if (b) tag_name = b + 1;
+	char ltagname[16];
+	const size_t tag_name_len = strnlen(tag_name, sizeof(ltagname)-1);
+	for (size_t i = 0; i < tag_name_len; i++) {
+		if ('A' <= tag_name[i] && tag_name[i] <= 'Z') ltagname[i] = 32 + tag_name[i];
+		else ltagname[i] = tag_name[i];
+	}
+	int is_ignored_tag = 0;
+	size_t ans = 0;
+#define EQ(x) memcmp(ltagname, #x, sizeof(#x) - 1) == 0
+	if (EQ(script) || EQ(noscript) || EQ(style) || EQ(title)) is_ignored_tag = 1;
+	if (EQ(img) || EQ(svg)) ans += 1000;
+#undef EQ
+	if (tail != Py_None) ans += count_chars_in(tail);
+	if (text != Py_None && !is_ignored_tag) ans += count_chars_in(text);
+	return PyLong_FromSize_t(ans);
+}
+
 
 static PyMethodDef speedup_methods[] = {
     {"parse_date", speedup_parse_date, METH_VARARGS,
@@ -568,10 +554,6 @@ static PyMethodDef speedup_methods[] = {
             " This function returns an image (bytestring) in the PPM format as the texture."
     },
 
-    {"fdopen", speedup_fdopen, METH_VARARGS,
-        "fdopen(fd, name, mode [, bufsize=-1)\n\nCreate a python file object from an OS file descriptor with a name. Note that this does not do any validation of mode, so you must ensure fd already has the correct flags set."
-    },
-
     {"websocket_mask", speedup_websocket_mask, METH_VARARGS,
         "websocket_mask(data, mask [, offset=0)\n\nXOR the data (bytestring) with the specified (must be 4-byte bytestring) mask"
     },
@@ -588,40 +570,30 @@ static PyMethodDef speedup_methods[] = {
 		"set_thread_name(name)\n\nWrapper for pthread_setname_np"
 	},
 
+	{"get_element_char_length", get_element_char_length, METH_VARARGS,
+		"get_element_char_length(tag_name, text, tail)\n\nGet the number of chars in specified tag"
+	},
+
     {NULL, NULL, 0, NULL}
 };
 
+static int
+exec_module(PyObject *module) {
+    PyDateTime_IMPORT;
+#ifndef _WIN32
+    PyModule_AddIntConstant(module, "O_CLOEXEC", O_CLOEXEC);
+#endif
+    return 0;
+}
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-static struct PyModuleDef speedup_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "speedup",
-    /* m_doc      */ "Implementation of methods in C for speed.",
-    /* m_size     */ -1,
-    /* m_methods  */ speedup_methods,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "speedup",
+    .m_doc      = "Implementation of methods in C for speed.",
+    .m_methods  = speedup_methods,
+    .m_slots    = slots,
 };
 
-CALIBRE_MODINIT_FUNC PyInit_speedup(void) {
-    PyObject *mod = PyModule_Create(&speedup_module);
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC initspeedup(void) {
-    PyObject *mod = Py_InitModule3("speedup", speedup_methods,
-        "Implementation of methods in C for speed.");
-#endif
-
-    if (mod == NULL) INITERROR;
-    PyDateTime_IMPORT;
-#ifdef O_CLOEXEC
-    PyModule_AddIntConstant(mod, "O_CLOEXEC", O_CLOEXEC);
-#endif
-
-#if PY_MAJOR_VERSION >= 3
-    return mod;
-#endif
-}
+CALIBRE_MODINIT_FUNC PyInit_speedup(void) { return PyModuleDef_Init(&module_def); }

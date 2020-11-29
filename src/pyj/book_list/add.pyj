@@ -16,7 +16,7 @@ from file_uploads import (
 )
 from session import get_interface_data
 from utils import safe_set_inner_html
-from widgets import create_button
+from widgets import create_button, enable_escape_key
 
 state = {
     'in_progress': False,
@@ -71,7 +71,10 @@ def list_added_book(container, data):
 
 
 def list_duplicate_book(container, container_id, job_id, data, file):
-    container.appendChild(E.div(style="padding: 1rem 1ex", _('A book with the title "{0}" already exists in the library.').format(data.title)))
+    container.appendChild(E.div(
+        style="padding: 1rem 1ex",
+        _('A book with the title "{0}" already exists in the library.'
+    ).format(data.title)))
     b = create_button(_('Add anyway'), action=def():
         c = get_job_container(container_id, job_id)
         clear(c)
@@ -79,7 +82,20 @@ def list_duplicate_book(container, container_id, job_id, data, file):
         c.appendChild(w)
         send_file(file, container_id, job_id, True)
     )
+
+    def list_duplicates():
+        ans = E.ol(style='margin-left: 2rem')
+        for item in data.duplicates:
+            ans.appendChild(E.li(_('{0} by {1}').format(item.title, ' & '.join(item.authors))))
+        return ans
+
     container.appendChild(b)
+    container.appendChild(E.div(
+        style='margin: 1rem 1ex; border-top: solid 1px currentColor; padding-top: 1ex',
+        _('The book you are trying to add is:'), E.span(' ', E.b(data.title), ' ', _('by'), ' ', E.i(' & '.join(data.authors))),
+        _('. Books already in the library with that title are:'),
+        E.div(style='padding-top:1ex', list_duplicates())
+    ))
 
 
 def write_access_error(msg, xhr):
@@ -159,6 +175,7 @@ def add_books_panel(container_id):
     state.in_progress = True
     state.container_id = container_id
     state.fake_send = False
+    enable_escape_key(container, on_close)
     return upload_files_widget(container, files_chosen)
 
 

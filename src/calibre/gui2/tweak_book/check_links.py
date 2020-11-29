@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 from collections import defaultdict
 from threading import Thread
@@ -16,6 +15,7 @@ from calibre.gui2 import error_dialog
 from calibre.gui2.tweak_book import current_container, editors, set_current_container, tprefs
 from calibre.gui2.tweak_book.boss import get_boss
 from calibre.gui2.tweak_book.widgets import Dialog
+from polyglot.builtins import iteritems
 
 
 def get_data(name):
@@ -30,6 +30,8 @@ def set_data(name, val):
         editors[name].replace_data(val, only_if_different=False)
     else:
         with current_container().open(name, 'wb') as f:
+            if isinstance(val, str):
+                val = val.encode('utf-8')
             f.write(val)
     get_boss().set_modified()
 
@@ -149,7 +151,7 @@ class CheckExternalLinks(Dialog):
             for name, href in {(l[0], l[1]) for l in err[0]}:
                 nmap[name].add(href)
 
-            for name, hrefs in nmap.iteritems():
+            for name, hrefs in iteritems(nmap):
                 raw = oraw = get_data(name)
                 for href in hrefs:
                     raw = raw.replace(href, newurl)

@@ -47,7 +47,7 @@ cpalmdoc_decompress(PyObject *self, PyObject *args) {
     const char *_input = NULL; Py_ssize_t input_len = 0;
     Byte *input; char *output; Byte c; PyObject *ans;
     Py_ssize_t i = 0, o = 0, j = 0, di, n;
-    if (!PyArg_ParseTuple(args, "t#", &_input, &input_len))
+    if (!PyArg_ParseTuple(args, "y#", &_input, &input_len))
 		return NULL;
     input = (Byte *) PyMem_Malloc(sizeof(Byte)*input_len);
     if (input == NULL) return PyErr_NoMemory();
@@ -76,7 +76,7 @@ cpalmdoc_decompress(PyObject *self, PyObject *args) {
                 output[o] = output[o - di];
         }
     }
-    ans = Py_BuildValue("s#", output, o);
+    ans = Py_BuildValue("y#", output, o);
     if (output != NULL) PyMem_Free(output);
     if (input != NULL) PyMem_Free(input);
     return ans;
@@ -162,7 +162,7 @@ cpalmdoc_compress(PyObject *self, PyObject *args) {
     char *output; PyObject *ans;
     Py_ssize_t j = 0;
     buffer b;
-    if (!PyArg_ParseTuple(args, "t#", &_input, &input_len))
+    if (!PyArg_ParseTuple(args, "y#", &_input, &input_len))
 		return NULL;
     b.data = (Byte *)PyMem_Malloc(sizeof(Byte)*input_len);
     if (b.data == NULL) return PyErr_NoMemory();
@@ -176,13 +176,15 @@ cpalmdoc_compress(PyObject *self, PyObject *args) {
     if (output == NULL) return PyErr_NoMemory();
     j = cpalmdoc_do_compress(&b, output);
     if ( j == 0) return PyErr_NoMemory();
-    ans = Py_BuildValue("s#", output, j);
+    ans = Py_BuildValue("y#", output, j);
     PyMem_Free(output);
     PyMem_Free(b.data);
     return ans;
 }
 
-static PyMethodDef cPalmdocMethods[] = {
+static char cPalmdoc_doc[] = "Compress and decompress palmdoc strings.";
+
+static PyMethodDef cPalmdoc_methods[] = {
     {"decompress", cpalmdoc_decompress, METH_VARARGS,
     "decompress(bytestring) -> decompressed bytestring\n\n"
     		"Decompress a palmdoc compressed byte string. "
@@ -195,12 +197,17 @@ static PyMethodDef cPalmdocMethods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-CALIBRE_MODINIT_FUNC
-initcPalmdoc(void) {
-    PyObject *m;
-    m = Py_InitModule3("cPalmdoc", cPalmdocMethods,
-    "Compress and decompress palmdoc strings."
-    );
-    if (m == NULL) return;
-}
+static int
+exec_module(PyObject *module) { return 0; }
 
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "cPalmdoc",
+    .m_doc      = cPalmdoc_doc,
+    .m_methods  = cPalmdoc_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_cPalmdoc(void) { return PyModuleDef_Init(&module_def); }

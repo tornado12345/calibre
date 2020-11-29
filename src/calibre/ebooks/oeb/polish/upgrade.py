@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import sys
 
@@ -23,11 +22,14 @@ def add_properties(item, *props):
 
 
 def fix_font_mime_types(container):
+    changed = False
     for item in container.opf_xpath('//opf:manifest/opf:item[@href and @media-type]'):
         mt = item.get('media-type') or ''
         if mt.lower() in OEB_FONTS:
             name = container.href_to_name(item.get('href'), container.opf_name)
             item.set('media-type', container.guess_type(name))
+            changed = True
+    return changed
 
 
 def collect_properties(container):
@@ -112,12 +114,12 @@ def create_nav(container, toc, landmarks, previous_nav=None):
     commit_nav_toc(container, toc, lang=lang, landmarks=landmarks, previous_nav=previous_nav)
 
 
-def epub_2_to_3(container, report, previous_nav=None):
+def epub_2_to_3(container, report, previous_nav=None, remove_ncx=True):
     upgrade_metadata(container.opf)
     collect_properties(container)
     toc = get_toc(container)
     toc_name = find_existing_ncx_toc(container)
-    if toc_name:
+    if toc_name and remove_ncx:
         container.remove_item(toc_name)
     container.opf_xpath('./opf:spine')[0].attrib.pop('toc', None)
     landmarks = get_landmarks(container)
@@ -125,15 +127,16 @@ def epub_2_to_3(container, report, previous_nav=None):
         guide.getparent().remove(guide)
     create_nav(container, toc, landmarks, previous_nav)
     container.opf.set('version', '3.0')
-    fix_font_mime_types(container)
+    if fix_font_mime_types(container):
+        container.refresh_mime_map()
     container.dirty(container.opf_name)
 
 
-def upgrade_book(container, report):
+def upgrade_book(container, report, remove_ncx=True):
     if container.book_type != 'epub' or container.opf_version_parsed.major >= 3:
         report(_('No upgrade needed'))
         return False
-    epub_2_to_3(container, report)
+    epub_2_to_3(container, report, remove_ncx=remove_ncx)
     report(_('Updated EPUB from version 2 to 3'))
     return True
 

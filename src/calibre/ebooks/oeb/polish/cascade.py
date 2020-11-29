@@ -1,9 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 from collections import defaultdict, namedtuple
 from functools import partial
 from itertools import count
@@ -15,10 +14,11 @@ from css_parser.css import CSSStyleSheet, CSSRule, Property
 from css_selectors import Select, INAPPROPRIATE_PSEUDO_CLASSES, SelectorError
 from calibre import as_unicode
 from calibre.ebooks.css_transform_rules import all_properties
-from calibre.ebooks.oeb.base import OEB_STYLES, XHTML
+from calibre.ebooks.oeb.base import OEB_STYLES, XHTML, css_text
 from calibre.ebooks.oeb.normalize_css import normalizers, DEFAULTS
 from calibre.ebooks.oeb.stylizer import media_ok, INHERITED
 from tinycss.fonts3 import serialize_font_family, parse_font_family
+from polyglot.builtins import iteritems, itervalues, unicode_type
 
 _html_css_stylesheet = None
 
@@ -99,7 +99,7 @@ def iterdeclaration(decl):
         if n is None:
             yield p
         else:
-            for k, v in n(p.name, p.propertyValue).iteritems():
+            for k, v in iteritems(n(p.name, p.propertyValue)):
                 yield Property(k, v, p.literalpriority)
 
 
@@ -119,8 +119,8 @@ class Values(tuple):
     def cssText(self):
         ' This will return either a string or a tuple of strings '
         if len(self) == 1:
-            return self[0].cssText
-        return tuple(x.cssText for x in self)
+            return css_text(self[0])
+        return tuple(css_text(x) for x in self)
 
 
 def normalize_style_declaration(decl, sheet_name):
@@ -128,7 +128,7 @@ def normalize_style_declaration(decl, sheet_name):
     for prop in iterdeclaration(decl):
         if prop.name == 'font-family':
             # Needed because of https://bitbucket.org/cthedot/cssutils/issues/66/incorrect-handling-of-spaces-in-font
-            prop.propertyValue.cssText = serialize_font_family(parse_font_family(prop.propertyValue.cssText))
+            prop.propertyValue.cssText = serialize_font_family(parse_font_family(css_text(prop.propertyValue)))
         ans[prop.name] = Values(prop.propertyValue, sheet_name, prop.priority)
     return ans
 
@@ -156,7 +156,7 @@ def resolve_pseudo_declarations(decls):
     groups = defaultdict(list)
     for d in decls:
         groups[d.pseudo_element].append(d)
-    return {k:resolve_declarations(v) for k, v in groups.iteritems()}
+    return {k:resolve_declarations(v) for k, v in iteritems(groups)}
 
 
 def resolve_styles(container, name, select=None, sheet_callback=None):
@@ -165,7 +165,7 @@ def resolve_styles(container, name, select=None, sheet_callback=None):
     style_map = defaultdict(list)
     pseudo_style_map = defaultdict(list)
     rule_index_counter = count()
-    pseudo_pat = re.compile(u':{1,2}(%s)' % ('|'.join(INAPPROPRIATE_PSEUDO_CLASSES)), re.I)
+    pseudo_pat = re.compile(':{1,2}(%s)' % ('|'.join(INAPPROPRIATE_PSEUDO_CLASSES)), re.I)
 
     def process_sheet(sheet, sheet_name):
         if sheet_callback is not None:
@@ -218,11 +218,11 @@ def resolve_styles(container, name, select=None, sheet_callback=None):
             style_map[elem].append(StyleDeclaration(Specificity(1, 0, 0, 0, 0), normalize_style_declaration(style, name), None))
 
     for l in (style_map, pseudo_style_map):
-        for x in l.itervalues():
+        for x in itervalues(l):
             x.sort(key=itemgetter(0), reverse=True)
 
-    style_map = {elem:resolve_declarations(x) for elem, x in style_map.iteritems()}
-    pseudo_style_map = {elem:resolve_pseudo_declarations(x) for elem, x in pseudo_style_map.iteritems()}
+    style_map = {elem:resolve_declarations(x) for elem, x in iteritems(style_map)}
+    pseudo_style_map = {elem:resolve_pseudo_declarations(x) for elem, x in iteritems(pseudo_style_map)}
 
     return partial(resolve_property, style_map), partial(resolve_pseudo_property, style_map, pseudo_style_map), select
 
@@ -233,8 +233,7 @@ _defvals = None
 def defvals():
     global _defvals
     if _defvals is None:
-        u = type('')
-        _defvals = {k:Values(Property(k, u(val)).propertyValue) for k, val in DEFAULTS.iteritems()}
+        _defvals = {k:Values(Property(k, unicode_type(val)).propertyValue) for k, val in iteritems(DEFAULTS)}
     return _defvals
 
 

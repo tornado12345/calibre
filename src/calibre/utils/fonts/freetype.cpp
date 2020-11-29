@@ -58,11 +58,7 @@ Face_init(Face *self, PyObject *args, PyObject *kwds)
     Py_ssize_t sz;
     PyObject *ft;
 
-#if PY_MAJOR_VERSION >= 3
     if (!PyArg_ParseTuple(args, "Oy#", &ft, &data, &sz)) return -1;
-#else
-    if (!PyArg_ParseTuple(args, "Os#", &ft, &data, &sz)) return -1;
-#endif
 
     Py_BEGIN_ALLOW_THREADS;
     error = FT_New_Memory_Face( ( (FreeType*)ft )->library,
@@ -292,58 +288,32 @@ static PyTypeObject FreeTypeType = { // {{{
 
 static char freetype_doc[] = "Interface to freetype";
 
-static PyMethodDef freetype_methods[] = {
-    {NULL, NULL, 0, NULL}
-};
-
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-#define INITMODULE PyModule_Create(&freetype_module)
-static struct PyModuleDef freetype_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "freetype",
-    /* m_doc      */ freetype_doc,
-    /* m_size     */ -1,
-    /* m_methods  */ freetype_methods,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
-};
-CALIBRE_MODINIT_FUNC PyInit_freetype(void) {
-#else
-#define INITERROR return
-#define INITMODULE Py_InitModule3("freetype", freetype_methods, freetype_doc)
-CALIBRE_MODINIT_FUNC initfreetype(void) {
-#endif
-
-    PyObject *m;
-
+static int
+exec_module(PyObject *m) {
     FreeTypeType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&FreeTypeType) < 0) {
-        INITERROR;
-    }
+    if (PyType_Ready(&FreeTypeType) < 0) return -1;
 
     FaceType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&FaceType) < 0) {
-        INITERROR;
-    }
-
-    m = INITMODULE;
-    if (m == NULL) {
-        INITERROR;
-    }
+    if (PyType_Ready(&FaceType) < 0) return -1;
 
     FreeTypeError = PyErr_NewException((char*)"freetype.FreeTypeError", NULL, NULL);
-    if (FreeTypeError == NULL) {
-        INITERROR;
-    }
+    if (FreeTypeError == NULL) return -1;
     PyModule_AddObject(m, "FreeTypeError", FreeTypeError);
 
     Py_INCREF(&FreeTypeType);
     PyModule_AddObject(m, "FreeType", (PyObject *)&FreeTypeType);
+    Py_INCREF(&FaceType);
     PyModule_AddObject(m, "Face", (PyObject *)&FaceType);
- #if PY_MAJOR_VERSION >= 3
-    return m;
-#endif
+	return 0;
+}
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, (void*)exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {PyModuleDef_HEAD_INIT};
+
+CALIBRE_MODINIT_FUNC PyInit_freetype(void) {
+	module_def.m_name = "freetype";
+	module_def.m_doc = freetype_doc;
+	module_def.m_slots = slots;
+	return PyModuleDef_Init(&module_def);
 }

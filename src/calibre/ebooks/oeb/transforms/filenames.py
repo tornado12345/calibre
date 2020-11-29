@@ -1,16 +1,17 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import posixpath
-from urlparse import urldefrag, urlparse
 
 from lxml import etree
 
 from calibre.ebooks.oeb.base import rewrite_links, urlnormalize
+from polyglot.urllib import urldefrag, urlparse
 
 
 class RenameFiles(object):  # {{{
@@ -96,7 +97,7 @@ class UniqueFilenames(object):  # {{{
         self.opts = opts
         self.oeb = oeb
 
-        self.seen_filenames = set([])
+        self.seen_filenames = set()
         self.rename_map = {}
 
         for item in list(oeb.manifest.items):

@@ -337,7 +337,7 @@ remove all non-breaking-space entities, or may include false positive matches re
     tags can used, but calibre does not provide the ability to add the image during conversion, this must be done after the fact using
     the 'Edit book' feature.
 
-        Example image tag (place the image within an 'Images' folder inside the epub after conversion):
+        Example image tag (place the image within an 'Images' folder inside the EPUB after conversion):
             <img style="width:10%" src="../Images/scenebreak.png" />
 
         Example horizontal rule with styles:
@@ -589,22 +589,22 @@ clicking the :guilabel:`Edit metadata` button to bring up the bulk metadata
 edit dialog, near the bottom of the dialog is an option to remove stored
 conversion settings.
 
-When you Bulk Convert a set of books, settings are taken in the following order (last one wins):
+When you bulk convert a set of books, settings are taken in the following order (last one wins):
 
     * From the defaults set in Preferences->Conversion
 
     * From the saved conversion settings for each book being converted (if
       any). This can be turned off by the option in the top left corner of the
-      Bulk Conversion dialog.
+      Bulk conversion dialog.
 
     * From the settings set in the Bulk conversion dialog
 
-Note that the final settings for each book in a Bulk Conversion will be saved
+Note that the final settings for each book in a Bulk conversion will be saved
 and re-used if the book is converted again. Since the highest priority in Bulk
-Conversion is given to the settings in the Bulk Conversion dialog, these will
+Conversion is given to the settings in the Bulk conversion dialog, these will
 override any book specific settings. So you should only bulk convert books
 together that need similar settings. The exceptions are metadata and input
-format specific settings. Since the Bulk Conversion dialog does not have
+format specific settings. Since the Bulk conversion dialog does not have
 settings for these two categories, they will be taken from book specific
 settings (if any) or the defaults.
 
@@ -625,8 +625,7 @@ Convert Microsoft Word documents
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 calibre can automatically convert ``.docx`` files created by Microsoft Word 2007 and
-newer. Just add the file to calibre and click convert (make sure you are running
-the latest version of calibre as support for ``.docx`` files is very new).
+newer. Just add the file to calibre and click convert.
 
 .. note::
     There is a `demo .docx file <https://calibre-ebook.com/downloads/demos/demo.docx>`_
@@ -646,7 +645,7 @@ and then convert the resulting HTML file with calibre. When saving as
 HTML, be sure to use the "Save as Web Page, Filtered" option as this will
 produce clean HTML that will convert well. Note that Word produces really messy
 HTML, converting it can take a long time, so be patient. If you have a newer
-version of Word available, you can directly save it as docx as well.
+version of Word available, you can directly save it as .docx as well.
 
 Another alternative is to use the free OpenOffice. Open your .doc file in
 OpenOffice and save it in OpenOffice's format .odt. calibre can directly convert
@@ -727,7 +726,7 @@ between 0 and 1. The default is 0.45, just under the median line length. Lower t
 text in the unwrapping. Increase to include less. You can adjust this value in the conversion settings under :guilabel:`PDF Input`.
 
 Also, they often have headers and footers as part of the document that will become included with the text.
-Use the Search and Replace panel to remove headers and footers to mitigate this issue. If the headers and footers are not
+Use the :guilabel:`Search and replace` panel to remove headers and footers to mitigate this issue. If the headers and footers are not
 removed from the text it can throw off the paragraph unwrapping. To learn how to use the header and footer removal options, read
 :ref:`regexptutorial`.
 
@@ -737,7 +736,7 @@ Some limitations of PDF input are:
     * Extraction of vector images and tables from within the document is also not supported.
     * Some PDFs use special glyphs to represent ll or ff or fi, etc. Conversion of these may or may not work depending on just how they are represented internally in the PDF.
     * Links and Tables of Contents are not supported
-    * PDFs that use embedded non-unicode fonts to represent non-English characters will result in garbled output for those characters
+    * PDFs that use embedded non-Unicode fonts to represent non-English characters will result in garbled output for those characters
     * Some PDFs are made up of photographs of the page with OCRed text behind them. In such cases calibre uses the OCRed text, which can be very different from what you see when you view the PDF file
     * PDFs that are used to display complex text, like right to left languages and math typesetting will not convert correctly
 
@@ -834,44 +833,67 @@ code that get rendered in the header and footer locations. For example, to
 display page numbers centered at the bottom of every page, in green, use the following
 footer template::
 
-    <p style="text-align:center; color:green">Page _PAGENUM_</p>
+    <footer><div style="margin: auto; color: green">_PAGENUM_</div></footer>
 
-calibre will automatically replace _PAGENUM_ with the current page number. You
+calibre will automatically replace :code:`_PAGENUM_` with the current page number. You
 can even put different content on even and odd pages, for example the following
 header template will show the title on odd pages and the author on even pages::
 
-    <p style="text-align:right"><span class="even_page">_AUTHOR_</span><span class="odd_page"><i>_TITLE_</i></span></p>
+    <header style="justify-content: flex-end">
+        <div class="even-page">_AUTHOR_</div>
+        <div class="odd-page"><i>_TITLE_</i></div>
+    </header>
 
-calibre will automatically replace _TITLE_ and _AUTHOR_ with the title and author
-of the document being converted.  You can also display text at the left and
-right edges and change the font size, as demonstrated with this header
-template::
+calibre will automatically replace :code:`_TITLE_` and :code:`_AUTHOR_` with
+the title and author of the document being converted. Setting
+:code:`justify-content` to :code:`flex-end` will cause the text to be right
+aligned.
 
-    <div style="font-size:x-small"><p style="float:left">_TITLE_</p><p style="float:right;"><i>_AUTHOR_</i></p></div>
+You can also display text at the left and right edges and change the font size,
+as demonstrated with this header template::
+
+    <header style="justify-content: space-between; font-size: smaller">
+        <div>_TITLE_</div>
+        <div>_AUTHOR_</div>
+    </header>
 
 This will display the title at the left and the author at the right, in a font
 size smaller than the main text.
 
 You can also use the current section in templates, as shown below::
 
-    <p style="text-align:right">_SECTION_</p>
+    <header><div>_SECTION_</div></header>
 
-_SECTION_ is replaced by whatever the name of the current section is. These
+:code:`_SECTION_` is replaced by whatever the name of the current section is. These
 names are taken from the metadata Table of Contents in the document (the PDF
 Outline). If the document has no table of contents then it will be replaced by
 empty text. If a single PDF page has multiple sections, the first section on
-the page will be used. Similarly, there is a variable named _TOP_LEVEL_SECTION_
+the page will be used. Similarly, there is a variable named :code:`_TOP_LEVEL_SECTION_`
 that can be used to get the name of the current top-level section.
 
-You can even use javascript inside the header and footer templates, for
+You can even use JavaScript inside the header and footer templates, for
 example, the following template will cause page numbers to start at 4 instead
 of 1::
 
-    <p id="pagenum" style="text-align:center;"></p><script>document.getElementById("pagenum").innerHTML = "" + (_PAGENUM_ + 3)</script>
+    <footer>
+        <div></div>
+        <script>document.currentScript.parentNode.querySelector("div").innerHTML = "" + (_PAGENUM_ + 3)</script>
+    </footer>
+
+
+In addition there are some more variables you can use in the headers and
+footers, documented below:
+
+  * ``_TOTAL_PAGES_`` - total number of pages in the PDF file, useful for
+    implementing a progress counter, for example.
+  * ``_TOP_LEVEL_SECTION_PAGES_`` - total number of pages in the current top
+    level section
+  * ``_TOP_LEVEL_SECTION_PAGENUM_`` - the page number of the current page
+    within the current top level section
 
 .. note:: When adding headers and footers make sure you set the page top and
-    bottom margins to large enough values, under the Page setup section of the
-    conversion dialog.
+    bottom margins to large enough values, under the :guilabel:`PDF Output`
+    section of the conversion dialog.
 
 Printable Table of Contents
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -883,7 +905,7 @@ then the PDF Outline provides this functionality and is generated by default.
 
 You can customize the look of the generated Table of contents by using the
 Extra CSS conversion setting under the Look & feel part of the conversion
-dialog. The default css used is listed below, simply copy it and make whatever
+dialog. The default CSS used is listed below, simply copy it and make whatever
 changes you like.
 
 .. code-block:: css
@@ -898,3 +920,28 @@ changes you like.
 
         .calibre-pdf-toc .level-1 td:first-of-type { padding-left: 1.4em }
         .calibre-pdf-toc .level-2 td:first-of-type { padding-left: 2.8em }
+
+
+Custom page margins for individual HTML files
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you are converting an EPUB or AZW3 file with multiple individual HTML files
+inside it and you want to change the page margins for a particular HTML file
+you can add the following style block to the HTML file using the calibre
+E-book editor:
+
+.. code-block:: html
+
+    <style>
+    @page {
+        margin-left: 10pt;
+        margin-right: 10pt;
+        margin-top: 10pt;
+        margin-bottom: 10pt;
+    }
+    </style>
+
+
+Then, in the PDF output section of the conversion dialog, turn on the
+option to :guilabel:`Use page margins from the document being converted`.
+Now all pages generated from this HTML file will have ``10pt`` margins.

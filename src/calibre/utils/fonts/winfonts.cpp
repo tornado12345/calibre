@@ -27,7 +27,7 @@ static wchar_t* unicode_to_wchar(PyObject *o) {
     len = PyUnicode_GET_SIZE(o);
     buf = (wchar_t *)calloc(len+2, sizeof(wchar_t));
     if (buf == NULL) { PyErr_NoMemory(); return NULL; }
-    len = PyUnicode_AsWideChar((PyUnicodeObject*)o, buf, len);
+    len = PyUnicode_AsWideChar(o, buf, len);
     if (len == -1) { free(buf); PyErr_Format(PyExc_TypeError, "Invalid python unicode object."); return NULL; }
     return buf;
 }
@@ -165,7 +165,7 @@ static PyObject* add_font(PyObject *self, PyObject *args) {
     Py_ssize_t sz;
     DWORD num = 0;
 
-    if (!PyArg_ParseTuple(args, "s#", &data, &sz)) return NULL;
+    if (!PyArg_ParseTuple(args, "y#", &data, &sz)) return NULL;
 
     AddFontMemResourceEx(data, (DWORD)sz, NULL, &num);
 
@@ -204,8 +204,9 @@ static PyObject* remove_system_font(PyObject *self, PyObject *args) {
     return Py_BuildValue("O", ok);
 }
 
-static
-PyMethodDef winfonts_methods[] = {
+static char winfonts_doc[] = "Windows font API";
+
+static PyMethodDef winfonts_methods[] = {
     {"enum_font_families", enum_font_families, METH_VARARGS,
     "enum_font_families()\n\n"
         "Enumerate all regular (not italic/bold/etc. variants) font families on the system. Note there will be multiple entries for every family (corresponding to each charset of the font)."
@@ -233,17 +234,8 @@ PyMethodDef winfonts_methods[] = {
 
     {NULL, NULL, 0, NULL}
 };
-
-
-CALIBRE_MODINIT_FUNC
-initwinfonts(void) {
-    PyObject *m;
-    m = Py_InitModule3(
-            "winfonts", winfonts_methods,
-            "Windows font API"
-    );
-    if (m == NULL) return;
-
+static int
+exec_module(PyObject *m) {
     PyModule_AddIntMacro(m, FW_DONTCARE);
     PyModule_AddIntMacro(m, FW_THIN);
     PyModule_AddIntMacro(m, FW_EXTRALIGHT);
@@ -259,5 +251,18 @@ initwinfonts(void) {
     PyModule_AddIntMacro(m, FW_ULTRABOLD);
     PyModule_AddIntMacro(m, FW_HEAVY);
     PyModule_AddIntMacro(m, FW_BLACK);
+
+	return 0;
 }
 
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, (void*)exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {PyModuleDef_HEAD_INIT};
+
+CALIBRE_MODINIT_FUNC PyInit_winfonts(void) {
+	module_def.m_name = "winfonts";
+	module_def.m_slots = slots;
+	module_def.m_doc = winfonts_doc;
+	module_def.m_methods = winfonts_methods;
+	return PyModuleDef_Init(&module_def);
+}

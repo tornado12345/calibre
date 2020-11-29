@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -9,6 +8,7 @@ __docformat__ = 'restructuredtext en'
 
 import os, re, sys
 from calibre.constants import iswindows, cache_dir, get_version
+from polyglot.builtins import exec_path
 
 ipydir = os.path.join(cache_dir(), 'ipython')
 
@@ -19,7 +19,6 @@ def setup_pyreadline():
     config = '''
 #Bind keys for exit (keys only work on empty lines
 #disable_readline(True)		#Disable pyreadline completely.
-from __future__ import print_function, unicode_literals, absolute_import
 debug_output("off")             #"on" saves log info to./pyreadline_debug_log.txt
                                 #"on_nologfile" only enables print warning messages
 bind_exit_key("Control-d")
@@ -183,7 +182,6 @@ def simple_repl(user_ns={}):
     user_ns['help'] = Helper()
     from code import InteractiveConsole
     console = InteractiveConsole(user_ns)
-    console.runsource('from __future__ import (unicode_literals, division, absolute_import, print_function)')
     console.interact(BANNER + 'Use exit to quit')
 
 
@@ -214,7 +212,7 @@ def ipython(user_ns=None):
     c = Config()
     user_conf = os.path.expanduser('~/.ipython/profile_default/ipython_config.py')
     if os.path.exists(user_conf):
-        execfile(user_conf, {'get_config': lambda: c})
+        exec_path(user_conf, {'get_config': lambda: c})
     c.TerminalInteractiveShell.prompts_class = CustomPrompt
     c.InteractiveShellApp.exec_lines = [
         'from __future__ import division, absolute_import, unicode_literals, print_function',

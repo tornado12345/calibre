@@ -1,10 +1,9 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__   = 'GPL v3'
-__copyright__ = '2015, Kovid Goyal <kovid at kovidgoyal.net>'
+__copyright__ = '2015-2019, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import textwrap
@@ -16,6 +15,7 @@ from calibre.gui2.device_drivers.tabbed_device_config import TabbedDeviceConfig,
 from calibre.devices.usbms.driver import debug_print
 from calibre.gui2 import error_dialog
 from calibre.gui2.dialogs.template_dialog import TemplateDialog
+from polyglot.builtins import unicode_type
 
 
 def wrap_msg(msg):
@@ -106,11 +106,15 @@ class KOBOTOUCHConfig(TabbedDeviceConfig):
         p['upload_covers'] = self.upload_covers
         p['keep_cover_aspect'] = self.keep_cover_aspect
         p['upload_grayscale'] = self.upload_grayscale
+        p['dithered_covers'] = self.dithered_covers
+        p['letterbox_fs_covers'] = self.letterbox_fs_covers
+        p['png_covers'] = self.png_covers
 
         p['show_recommendations'] = self.show_recommendations
         p['show_previews'] = self.show_previews
         p['show_archived_books'] = self.show_archived_books
 
+        p['update_device_metadata'] = self.update_device_metadata
         p['update_series'] = self.update_series
         p['update_core_metadata'] = self.update_core_metadata
         p['update_purchased_kepubs'] = self.update_purchased_kepubs
@@ -122,7 +126,7 @@ class KOBOTOUCHConfig(TabbedDeviceConfig):
 
         p['support_newer_firmware'] = self.support_newer_firmware
         p['debugging_title'] = self.debugging_title
-        p['driver_version'] = '.'.join([unicode(i) for i in self.device.version])
+        p['driver_version'] = '.'.join([unicode_type(i) for i in self.device.version])
 
         return p
 
@@ -183,7 +187,7 @@ class BookUploadsGroupBox(DeviceOptionsGroupBox):
 
     def __init__(self, parent, device):
         super(BookUploadsGroupBox, self).__init__(parent, device)
-        self.setTitle(_("Book uploading"))
+        self.setTitle(_("Uploading of books"))
 
         self.options_layout = QGridLayout()
         self.options_layout.setObjectName("options_layout")
@@ -304,9 +308,24 @@ class CoversGroupBox(DeviceOptionsGroupBox):
 
         self.upload_grayscale_checkbox = create_checkbox(
                              _('Upload black and white covers'),
-                             _('Convert covers to black and white when uploading'),
+                             _('Convert covers to grayscale when uploading.'),
                              device.get_pref('upload_grayscale')
                              )
+
+        self.dithered_covers_checkbox = create_checkbox(
+                             _('Upload dithered covers'),
+                             _('Dither cover images to the appropriate 16c grayscale palette for an eInk screen.'
+                               ' This usually ensures greater accuracy and avoids banding, making sleep covers look better.'
+                               ' On FW >= 4.11, Nickel itself may sometimes do a decent job of it.'
+                               ' Has no effect without "Upload black and white covers"!'),
+                             device.get_pref('dithered_covers')
+                             )
+        # Make it visually depend on B&W being enabled!
+        # c.f., https://stackoverflow.com/q/36281103
+        self.dithered_covers_checkbox.setEnabled(device.get_pref('upload_grayscale'))
+        self.upload_grayscale_checkbox.toggled.connect(self.dithered_covers_checkbox.setEnabled)
+        self.upload_grayscale_checkbox.toggled.connect(
+            lambda checked: not checked and self.dithered_covers_checkbox.setChecked(False))
 
         self.keep_cover_aspect_checkbox = create_checkbox(
                              _('Keep cover aspect ratio'),
@@ -314,8 +333,40 @@ class CoversGroupBox(DeviceOptionsGroupBox):
                                ' This is for firmware versions 2.3.1 and later.'),
                              device.get_pref('keep_cover_aspect'))
 
+        self.letterbox_fs_covers_checkbox = create_checkbox(
+                             _('Letterbox full-screen covers'),
+                             _('Do it on our end, instead of letting Nickel handle it.'
+                               ' Provides pixel-perfect results on devices where Nickel does not do extra processing.'
+                               ' Obviously has no effect without "Keep cover aspect ratio".'
+                               ' This is probably undesirable if you disable the "Show book covers full screen"'
+                               ' setting on your device.'),
+                             device.get_pref('letterbox_fs_covers'))
+        # Make it visually depend on AR being enabled!
+        self.letterbox_fs_covers_checkbox.setEnabled(device.get_pref('keep_cover_aspect'))
+        self.keep_cover_aspect_checkbox.toggled.connect(self.letterbox_fs_covers_checkbox.setEnabled)
+        self.keep_cover_aspect_checkbox.toggled.connect(
+            lambda checked: not checked and self.letterbox_fs_covers_checkbox.setChecked(False))
+
+        self.png_covers_checkbox = create_checkbox(
+                             _('Save covers as PNG'),
+                             _('Use the PNG image format instead of JPG.'
+                               ' Higher quality, especially with "Upload dithered covers" enabled,'
+                               ' which will also help generate potentially smaller files.'
+                               ' Behavior completely unknown on old (< 3.x) Kobo firmwares,'
+                               ' known to behave on FW >= 4.8.'
+                               ' Has no effect without "Upload black and white covers"!'),
+                             device.get_pref('png_covers'))
+        # Make it visually depend on B&W being enabled, to avoid storing ridiculously large color PNGs.
+        self.png_covers_checkbox.setEnabled(device.get_pref('upload_grayscale'))
+        self.upload_grayscale_checkbox.toggled.connect(self.png_covers_checkbox.setEnabled)
+        self.upload_grayscale_checkbox.toggled.connect(
+            lambda checked: not checked and self.png_covers_checkbox.setChecked(False))
+
         self.options_layout.addWidget(self.keep_cover_aspect_checkbox,    0, 0, 1, 1)
+        self.options_layout.addWidget(self.letterbox_fs_covers_checkbox,  0, 1, 1, 1)
         self.options_layout.addWidget(self.upload_grayscale_checkbox,     1, 0, 1, 1)
+        self.options_layout.addWidget(self.dithered_covers_checkbox,      1, 1, 1, 1)
+        self.options_layout.addWidget(self.png_covers_checkbox,           2, 1, 1, 1)
 
     @property
     def upload_covers(self):
@@ -326,8 +377,20 @@ class CoversGroupBox(DeviceOptionsGroupBox):
         return self.upload_grayscale_checkbox.isChecked()
 
     @property
+    def dithered_covers(self):
+        return self.dithered_covers_checkbox.isChecked()
+
+    @property
     def keep_cover_aspect(self):
         return self.keep_cover_aspect_checkbox.isChecked()
+
+    @property
+    def letterbox_fs_covers(self):
+        return self.letterbox_fs_covers_checkbox.isChecked()
+
+    @property
+    def png_covers(self):
+        return self.png_covers_checkbox.isChecked()
 
 
 class DeviceListGroupBox(DeviceOptionsGroupBox):
@@ -397,7 +460,7 @@ class AdvancedGroupBox(DeviceOptionsGroupBox):
                               'to perform full read-write functionality - Here be Dragons!! '
                               'Enable only if you are comfortable with restoring your kobo '
                               'to factory defaults and testing software. '
-                              'This driver supports firmware V2.x.x and DBVersion up to ') + unicode(
+                              'This driver supports firmware V2.x.x and DBVersion up to ') + unicode_type(
                                   device.supported_dbversion), device.get_pref('support_newer_firmware')
                              )
 
@@ -456,7 +519,7 @@ class MetadataGroupBox(DeviceOptionsGroupBox):
                              _("Update metadata on Book Details pages"),
                              _('This will update the metadata in the device database when the device is connected. '
                                'The metadata updated is displayed on the device in the library and the book details page. '
-                               'This is the Title, Authors, Comments/Synopsis, Series name and number, Publisher and Published Date, ISBN and Language. '
+                               'This is the title, authors, comments/synopsis, series name and number, publisher and published Date, ISBN and language. '
                                'If a metadata plugboard exists for the device and book format, this will be used to set the metadata.'
                                ),
                              device.get_pref('update_core_metadata')
@@ -555,7 +618,7 @@ class TemplateConfig(QWidget):  # {{{
 
     @property
     def template(self):
-        return unicode(self.t.text()).strip()
+        return unicode_type(self.t.text()).strip()
 
     @template.setter
     def template(self, template):
@@ -577,7 +640,7 @@ class TemplateConfig(QWidget):  # {{{
         except Exception as err:
             error_dialog(self, _('Invalid template'),
                     '<p>'+_('The template "%s" is invalid:')%tmpl +
-                    '<br>'+unicode(err), show=True)
+                    '<br>'+unicode_type(err), show=True)
 
             return False
 # }}}

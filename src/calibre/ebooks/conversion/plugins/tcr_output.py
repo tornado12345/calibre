@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -30,9 +31,9 @@ class TCROutput(OutputFormatPlugin):
         close = False
         if not hasattr(output_path, 'write'):
             close = True
-            if not os.path.exists(os.path.dirname(output_path)) and os.path.dirname(output_path) != '':
+            if not os.path.exists(os.path.dirname(output_path)) and os.path.dirname(output_path):
                 os.makedirs(os.path.dirname(output_path))
-            out_stream = open(output_path, 'wb')
+            out_stream = lopen(output_path, 'wb')
         else:
             out_stream = output_path
 

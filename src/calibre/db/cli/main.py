@@ -1,15 +1,10 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
-
-import httplib
 import json
 import os
 import sys
-from urllib import urlencode
-from urlparse import urlparse, urlunparse
 
 from calibre import browser, prints
 from calibre.constants import __appname__, __version__, iswindows
@@ -19,6 +14,8 @@ from calibre.utils.config import OptionParser, prefs
 from calibre.utils.localization import localize_user_manual_link
 from calibre.utils.lock import singleinstance
 from calibre.utils.serialize import MSGPACK_MIME
+from polyglot import http_client
+from polyglot.urllib import urlencode, urlparse, urlunparse
 
 COMMANDS = (
     'list', 'add', 'remove', 'add_format', 'remove_format', 'show_metadata',
@@ -37,24 +34,11 @@ def option_parser_for(cmd, args=()):
     return cmd_option_parser
 
 
-def send_message(msg=''):
-    prints('Notifying calibre of the change')
-    from calibre.utils.ipc import RC
-    t = RC(print_error=False)
-    t.start()
-    t.join(3)
-    if t.done:
-        t.conn.send('refreshdb:' + msg)
-        t.conn.close()
-
-
 def run_cmd(cmd, opts, args, dbctx):
     m = module_for_cmd(cmd)
     if dbctx.is_remote and getattr(m, 'no_remote', False):
         raise SystemExit(_('The {} command is not supported with remote (server based) libraries').format(cmd))
     ret = m.main(opts, args, dbctx)
-    # if not dbctx.is_remote and not opts.dont_notify_gui and not getattr(m, 'readonly', False):
-    #     send_message()
     return ret
 
 
@@ -126,7 +110,7 @@ def read_credentials(opts):
     pw = opts.password
     if pw:
         if pw == '<stdin>':
-            from calibre.utils.unicode_getpass import getpass
+            from getpass import getpass
             pw = getpass(_('Enter the password: '))
         elif pw.startswith('<f:') and pw.endswith('>'):
             with lopen(pw[3:-1], 'rb') as f:
@@ -192,13 +176,13 @@ class DBCtx(object):
         return m.implementation(self.db.new_api, None, *args)
 
     def interpret_http_error(self, err):
-        if err.code == httplib.UNAUTHORIZED:
+        if err.code == http_client.UNAUTHORIZED:
             if self.has_credentials:
                 raise SystemExit('The username/password combination is incorrect')
             raise SystemExit('A username and password is required to access this server')
-        if err.code == httplib.FORBIDDEN:
+        if err.code == http_client.FORBIDDEN:
             raise SystemExit(err.reason)
-        if err.code == httplib.NOT_FOUND:
+        if err.code == http_client.NOT_FOUND:
             raise SystemExit(err.reason)
 
     def remote_run(self, name, m, *args):
@@ -216,7 +200,8 @@ class DBCtx(object):
             self.interpret_http_error(err)
             raise
         if 'err' in ans:
-            prints(ans['tb'])
+            if ans['tb']:
+                prints(ans['tb'])
             raise SystemExit(ans['err'])
         return ans['result']
 
@@ -239,6 +224,9 @@ def main(args=sys.argv):
     if len(args) < 2:
         parser.print_help()
         return 1
+    if args[1] in ('-h', '--help'):
+        parser.print_help()
+        return 0
     if args[1] == '--version':
         parser.print_version()
         return 0

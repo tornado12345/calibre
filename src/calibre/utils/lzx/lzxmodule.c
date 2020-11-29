@@ -9,7 +9,8 @@
 #include <mspack.h>
 #include <lzxd.h>
 
-#include <lzxmodule.h>
+extern PyObject *LZXError;
+extern PyTypeObject CompressorType;
 
 static char lzx_doc[] =
     "Provide basic LZX compression and decompression using the code from\n"
@@ -157,7 +158,7 @@ decompress(PyObject *self, PyObject *args)
     memory_file dest;
     PyObject *retval = NULL;
 
-    if (!PyArg_ParseTuple(args, "s#I", &inbuf, &inlen, &outlen)) {
+    if (!PyArg_ParseTuple(args, "y#I", &inbuf, &inlen, &outlen)) {
         return NULL;
     }
 
@@ -202,36 +203,9 @@ static PyMethodDef lzx_methods[] = {
     { NULL }
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-#define INITMODULE PyModule_Create(&lzx_module)
-static struct PyModuleDef lzx_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "lzx",
-    /* m_doc      */ lzx_doc,
-    /* m_size     */ -1,
-    /* m_methods  */ lzx_methods,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
-};
-
-CALIBRE_MODINIT_FUNC PyInit_lzx(void) {
-#else
-#define INITERROR return
-#define INITMODULE Py_InitModule3("lzx", lzx_methods, lzx_doc);
-CALIBRE_MODINIT_FUNC initlzx(void) {
-#endif
-
-    if (PyType_Ready(&CompressorType) < 0) {
-        INITERROR;
-    }
-
-    PyObject *m = INITMODULE;
-    if (m == NULL) {
-        INITERROR;
-    }
+static int
+exec_module(PyObject *m) {
+    if (PyType_Ready(&CompressorType) < 0) return -1;
 
     LZXError = PyErr_NewException("lzx.LZXError", NULL, NULL);
     Py_INCREF(LZXError);
@@ -240,7 +214,17 @@ CALIBRE_MODINIT_FUNC initlzx(void) {
     Py_INCREF(&CompressorType);
     PyModule_AddObject(m, "Compressor", (PyObject *)&CompressorType);
 
-#if PY_MAJOR_VERSION >= 3
-    return m;
-#endif
+	return 0;
 }
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "lzx",
+    .m_doc      = lzx_doc,
+    .m_methods  = lzx_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_lzx(void) { return PyModuleDef_Init(&module_def); }

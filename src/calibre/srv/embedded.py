@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import errno
 import json
@@ -66,7 +66,7 @@ class Server(object):
         self.handler = Handler(library_broker, opts, notify_changes=notify_changes)
         plugins = self.plugins = []
         if opts.use_bonjour:
-            plugins.append(BonJour())
+            plugins.append(BonJour(wait_for_stop=max(0, opts.shutdown_timeout - 0.2)))
         self.opts = opts
         self.log, self.access_log = log, access_log
         self.handler.set_log(self.log)

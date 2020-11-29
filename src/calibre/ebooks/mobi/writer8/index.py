@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 from polyglot.builtins import map
 
 __license__   = 'GPL v3'
@@ -11,7 +10,7 @@ __docformat__ = 'restructuredtext en'
 from collections import namedtuple
 from struct import pack
 from io import BytesIO
-from polyglot.builtins import zip
+from polyglot.builtins import unicode_type, zip, range
 
 from calibre.ebooks.mobi.utils import CNCX, encint, align_block
 from calibre.ebooks.mobi.writer8.header import Header
@@ -130,7 +129,7 @@ class Index(object):  # {{{
                 shifts = mask_to_bit_shifts[mask]
                 ans |= mask & (nentries << shifts)
             if len(cbs) != cls.control_byte_count:
-                raise ValueError('The entry %r is invalid'%[lead_text, tags])
+                raise ValueError('The entry {!r} is invalid'.format([lead_text, tags]))
             control_bytes.append(cbs)
         return control_bytes
 
@@ -146,7 +145,7 @@ class Index(object):  # {{{
         for i, (index_num, tags) in enumerate(self.entries):
             control_bytes = self.control_bytes[i]
             buf.seek(0), buf.truncate(0)
-            index_num = (index_num.encode('utf-8') if isinstance(index_num, unicode) else index_num)
+            index_num = (index_num.encode('utf-8') if isinstance(index_num, unicode_type) else index_num)
             raw = bytearray(index_num)
             raw.insert(0, len(index_num))
             buf.write(bytes(raw))
@@ -380,7 +379,7 @@ if __name__ == '__main__':
     # calibre and kindlegen and compare the output
     import os, subprocess
     os.chdir('/t')
-    paras = ['<p>%d</p>' % i for i in xrange(4000)]
+    paras = ['<p>%d</p>' % i for i in range(4000)]
     raw = '<html><body>' + '\n\n'.join(paras) + '</body></html>'
 
     src = 'index.html'

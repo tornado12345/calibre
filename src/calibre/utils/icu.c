@@ -93,9 +93,6 @@ icu_Collator_get_strength(icu_Collator *self, void *closure) {
 static int
 icu_Collator_set_strength(icu_Collator *self, PyObject *val, void *closure) {
     if (PyLong_Check(val)) ucol_setStrength(self->collator, (int)PyLong_AsLong(val));
-#if PY_MAJOR_VERSION < 3
-    else if (PyInt_Check(val)) ucol_setStrength(self->collator, (int)PyInt_AS_LONG(val));
-#endif
     else {
         PyErr_SetString(PyExc_TypeError, "Strength must be an integer.");
         return -1;
@@ -212,13 +209,11 @@ icu_Collator_find(icu_Collator *self, PyObject *args) {
         pos = usearch_first(search, &status);
         if (pos != USEARCH_DONE) {
             length = usearch_getMatchedLength(search);
-#ifdef Py_UNICODE_WIDE
             // We have to return number of unicode characters since the string
             // could contain surrogate pairs which are represented as a single
             // character in python wide builds
             length = u_countChar32(b + pos, length);
             pos = u_countChar32(b, pos);
-#endif
         } else pos = -1;
     }
 end:
@@ -637,9 +632,7 @@ icu_BreakIterator_index(icu_BreakIterator *self, PyObject *token) {
         }
     }
     if (leading_hyphen && ans > -1) ans -= 1;
-#ifdef Py_UNICODE_WIDE
     if (ans > 0) ans = u_countChar32(self->text, ans);
-#endif
     Py_END_ALLOW_THREADS;
 
 end:
@@ -649,16 +642,54 @@ end:
 } // }}}
 
 // BreakIterator.split2 {{{
-static PyObject *
-icu_BreakIterator_split2(icu_BreakIterator *self, PyObject *args) {
 
-    int32_t word_start = 0, p = 0, sz = 0, last_pos = 0, last_sz = 0;
-    int is_hyphen_sep = 0, leading_hyphen = 0, trailing_hyphen = 0;
-    UChar sep = 0;
-    PyObject *ans = NULL, *temp = NULL, *t = NULL;
+static inline void
+unicode_code_point_count(UChar **count_start, int32_t *last_count, int *last_count32, int32_t *word_start, int32_t *sz) {
+	int32_t chars_to_new_word_from_last_pos = *word_start - *last_count;
+	int32_t sz32 = u_countChar32(*count_start + chars_to_new_word_from_last_pos, *sz);
+	int32_t codepoints_to_new_word_from_last_pos = u_countChar32(*count_start, chars_to_new_word_from_last_pos);
+	*count_start += chars_to_new_word_from_last_pos + *sz;
+	*last_count += chars_to_new_word_from_last_pos + *sz;
+	*last_count32 += codepoints_to_new_word_from_last_pos;
+	*word_start = *last_count32;
+	*last_count32 += sz32;
+	*sz = sz32;
+}
 
-    ans = PyList_New(0);
-    if (ans == NULL) return PyErr_NoMemory();
+static int
+add_split_pos_callback(void *data, int32_t pos, int32_t sz) {
+	PyObject *ans = (PyObject*) data;
+	PyObject *t, *temp;
+	if (pos < 0) {
+		if (PyList_GET_SIZE(ans) > 0) {
+			t = PyLong_FromLong((long)sz);
+			if (t == NULL) return 0;
+			temp = PyList_GET_ITEM(ans, PyList_GET_SIZE(ans) - 1);
+			Py_DECREF(PyTuple_GET_ITEM(temp, 1));
+			PyTuple_SET_ITEM(temp, 1, t);
+		}
+	} else {
+		temp = Py_BuildValue("ll", (long)(pos), (long)sz);
+		if (temp == NULL) return 0;
+		if (PyList_Append(ans, temp) != 0) { Py_DECREF(temp); return 0; }
+		Py_DECREF(temp);
+	}
+	return 1;
+}
+
+static int
+count_words_callback(void *data, int32_t pos, int32_t sz) {
+	unsigned long *total = (unsigned long*)data;
+	if (pos >= 0) (*total)++;
+	return 1;
+}
+
+
+static inline void
+do_split(icu_BreakIterator *self, int(*callback)(void*, int32_t, int32_t), void *callback_data) {
+    int32_t word_start = 0, p = 0, sz = 0, last_pos = 0, last_sz = 0, last_count = 0, last_count32 = 0;
+    int is_hyphen_sep = 0, leading_hyphen = 0, trailing_hyphen = 0, found_one = 0;
+    UChar sep = 0, *count_start = self->text;
 
     p = ubrk_first(self->break_iterator);
     while (p != UBRK_DONE) {
@@ -681,37 +712,37 @@ icu_BreakIterator_split2(icu_BreakIterator *self, PyObject *args) {
                 if (IS_HYPHEN_CHAR(sep)) trailing_hyphen = 1;
             }
             last_pos = p;
-#ifdef Py_UNICODE_WIDE
-            sz = u_countChar32(self->text + word_start, sz);
-            word_start = u_countChar32(self->text, word_start);
-#endif
-            if (is_hyphen_sep && PyList_GET_SIZE(ans) > 0) {
+			unicode_code_point_count(&count_start, &last_count, &last_count32, &word_start, &sz);
+            if (is_hyphen_sep && found_one) {
                 sz = last_sz + sz + trailing_hyphen;
                 last_sz = sz;
-#if PY_MAJOR_VERSION < 3
-                t = PyInt_FromLong((long)sz);
-#else
-                t = PyLong_FromLong((long)sz);
-#endif
-                if (t == NULL) { Py_DECREF(ans); ans = NULL; break; }
-                temp = PyList_GET_ITEM(ans, PyList_GET_SIZE(ans) - 1);
-                Py_DECREF(PyTuple_GET_ITEM(temp, 1));
-                PyTuple_SET_ITEM(temp, 1, t);
+				if (!callback(callback_data, -1, sz)) break;
             } else {
+				found_one = 1;
                 sz += leading_hyphen + trailing_hyphen;
                 last_sz = sz;
-                temp = Py_BuildValue("ll", (long)(word_start - leading_hyphen), (long)sz);
-                if (temp == NULL) {
-                    Py_DECREF(ans); ans = NULL; break;
-                }
-                if (PyList_Append(ans, temp) != 0) {
-                    Py_DECREF(temp); Py_DECREF(ans); ans = NULL; break;
-                }
-                Py_DECREF(temp);
+				if (!callback(callback_data, word_start - leading_hyphen, sz)) break;
             }
         }
     }
 
+}
+
+static PyObject *
+icu_BreakIterator_count_words(icu_BreakIterator *self, PyObject *args) {
+	unsigned long ans = 0;
+	do_split(self, count_words_callback, &ans);
+	if (PyErr_Occurred()) return NULL;
+	return Py_BuildValue("k", ans);
+}
+
+static PyObject *
+icu_BreakIterator_split2(icu_BreakIterator *self, PyObject *args) {
+    PyObject *ans = NULL;
+    ans = PyList_New(0);
+    if (ans == NULL) return PyErr_NoMemory();
+	do_split(self, add_split_pos_callback, ans);
+	if (PyErr_Occurred()) { Py_DECREF(ans); ans = NULL; }
     return ans;
 
 } // }}}
@@ -723,6 +754,10 @@ static PyMethodDef icu_BreakIterator_methods[] = {
 
     {"split2", (PyCFunction)icu_BreakIterator_split2, METH_NOARGS,
      "split2() -> Split the current text into tokens, returning a list of 2-tuples of the form (position of token, length of token). The numbers are suitable for indexing python strings regardless of narrow/wide builds."
+    },
+
+    {"count_words", (PyCFunction)icu_BreakIterator_count_words, METH_NOARGS,
+     "count_words() -> Split the current text into tokens as in split2() and count the number of tokens."
     },
 
     {"index", (PyCFunction)icu_BreakIterator_index, METH_O,
@@ -852,13 +887,6 @@ end:
 // set_default_encoding {{{
 static PyObject *
 icu_set_default_encoding(PyObject *self, PyObject *args) {
-#if PY_MAJOR_VERSION < 3
-    char *encoding;
-    if (!PyArg_ParseTuple(args, "s:setdefaultencoding", &encoding))
-        return NULL;
-    if (PyUnicode_SetDefaultEncoding(encoding))
-        return NULL;
-#endif
     Py_INCREF(Py_None);
     return Py_None;
 
@@ -987,11 +1015,7 @@ icu_ord_string(PyObject *self, PyObject *input) {
     ans = PyTuple_New(sz);
     if (ans == NULL) goto end;
     for (i = 0; i < sz; i++) {
-#if PY_MAJOR_VERSION < 3
-        temp = PyInt_FromLong((long)input_buf[i]);
-#else
         temp = PyLong_FromLong((long)input_buf[i]);
-#endif
         if (temp == NULL) { Py_DECREF(ans); ans = NULL; PyErr_NoMemory(); goto end; }
         PyTuple_SET_ITEM(ans, i, temp);
     }
@@ -1118,22 +1142,6 @@ icu_string_length(PyObject *self, PyObject *src) {
 static PyObject *
 icu_utf16_length(PyObject *self, PyObject *src) {
     Py_ssize_t sz = 0;
-#if PY_VERSION_HEX < 0x03030000
-#ifdef Py_UNICODE_WIDE
-    int32_t i = 0, t = 0;
-    Py_UNICODE *data = NULL;
-#endif
-
-    if (!PyUnicode_Check(src)) { PyErr_SetString(PyExc_TypeError, "Must be a unicode object"); return NULL; }
-    sz = PyUnicode_GET_SIZE(src);
-#ifdef Py_UNICODE_WIDE
-    data = PyUnicode_AS_UNICODE(src);
-    for (i = 0; i < sz; i++) {
-        t += (data[i] > 0xffff) ? 2 : 1;
-    }
-    sz = t;
-#endif
-#else
     Py_ssize_t unit_length, i;
     Py_UCS4 *data = NULL;
 
@@ -1149,7 +1157,6 @@ icu_utf16_length(PyObject *self, PyObject *src) {
             }
         }
     }
-#endif
 
     return Py_BuildValue("n", sz);
 } // }}}
@@ -1215,36 +1222,16 @@ static PyMethodDef icu_methods[] = {
     {NULL}  /* Sentinel */
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-#define INITMODULE PyModule_Create(&icu_module)
-static struct PyModuleDef icu_module = {
-        /* m_base     */ PyModuleDef_HEAD_INIT,
-        /* m_name     */ "icu",
-        /* m_doc      */ "Wrapper for the ICU internationalization library",
-        /* m_size     */ -1,
-        /* m_methods  */ icu_methods,
-        /* m_slots    */ 0,
-        /* m_traverse */ 0,
-        /* m_clear    */ 0,
-        /* m_free     */ 0,
-};
-
-CALIBRE_MODINIT_FUNC PyInit_icu(void) {
-#else
-#define INITERROR return
-#define INITMODULE Py_InitModule3("icu", icu_methods, "Wrapper for the ICU internationalization library")
-CALIBRE_MODINIT_FUNC initicu(void) {
-#endif
-
+static int
+exec_module(PyObject *mod) {
     UVersionInfo ver, uver;
     UErrorCode status = U_ZERO_ERROR;
     char version[U_MAX_VERSION_STRING_LENGTH+1] = {0}, uversion[U_MAX_VERSION_STRING_LENGTH+5] = {0};
 
     u_init(&status);
     if (U_FAILURE(status)) {
-        PyErr_SetString(PyExc_RuntimeError, u_errorName(status));
-        INITERROR;
+        PyErr_Format(PyExc_RuntimeError, "u_init() failed with error: %s", u_errorName(status));
+        return -1;
     }
     u_getVersion(ver);
     u_versionToString(ver, version);
@@ -1252,13 +1239,9 @@ CALIBRE_MODINIT_FUNC initicu(void) {
     u_versionToString(uver, uversion);
 
     if (PyType_Ready(&icu_CollatorType) < 0)
-        INITERROR;
+        return -1;
     if (PyType_Ready(&icu_BreakIteratorType) < 0)
-        INITERROR;
-
-    PyObject *mod = INITMODULE;
-
-    if (mod == NULL) INITERROR;
+        return -1;
 
     Py_INCREF(&icu_CollatorType); Py_INCREF(&icu_BreakIteratorType);
     PyModule_AddObject(mod, "Collator", (PyObject *)&icu_CollatorType);
@@ -1300,8 +1283,19 @@ CALIBRE_MODINIT_FUNC initicu(void) {
     ADDUCONST(UBRK_LINE);
     ADDUCONST(UBRK_SENTENCE);
 
-#if PY_MAJOR_VERSION >= 3
-    return mod;
-#endif
+	return 0;
 }
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "icu",
+    .m_doc      =  "Wrapper for the ICU internationalization library",
+    .m_methods  = icu_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_icu(void) { return PyModuleDef_Init(&module_def); }
+
 // }}}

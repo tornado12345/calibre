@@ -1,22 +1,27 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-from hashlib import sha1
+
+import errno
+import json as jsonlib
+import os
+import tempfile
+import time
 from functools import partial
-from threading import RLock, Lock
-from cPickle import dumps
-import errno, os, tempfile, shutil, time, json as jsonlib
+from hashlib import sha1
+from threading import Lock, RLock
 
 from calibre.constants import cache_dir, iswindows
 from calibre.customize.ui import plugin_for_input_format
+from calibre.srv.errors import BookNotFound, HTTPNotFound
 from calibre.srv.metadata import book_as_json
 from calibre.srv.render_book import RENDER_VERSION
-from calibre.srv.errors import HTTPNotFound, BookNotFound
 from calibre.srv.routes import endpoint, json
-from calibre.srv.utils import get_library_data, get_db
+from calibre.srv.utils import get_db, get_library_data
+from calibre.utils.filenames import rmtree
+from calibre.utils.serialize import json_dumps
+from polyglot.builtins import as_unicode, itervalues, map
 
 cache_lock = RLock()
 queued_jobs = {}
@@ -49,8 +54,8 @@ def books_cache_dir():
 
 
 def book_hash(library_uuid, book_id, fmt, size, mtime):
-    raw = dumps((library_uuid, book_id, fmt.upper(), size, mtime, RENDER_VERSION))
-    return sha1(raw).hexdigest().decode('ascii')
+    raw = json_dumps((library_uuid, book_id, fmt.upper(), size, mtime, RENDER_VERSION))
+    return as_unicode(sha1(raw).hexdigest())
 
 
 staging_cleaned = False
@@ -60,7 +65,7 @@ def safe_remove(x, is_file=None):
     if is_file is None:
         is_file = os.path.isfile(x)
     try:
-        os.remove(x) if is_file else shutil.rmtree(x, ignore_errors=True)
+        os.remove(x) if is_file else rmtree(x, ignore_errors=True)
     except EnvironmentError:
         pass
 
@@ -147,6 +152,7 @@ def book_manifest(ctx, rd, book_id, fmt):
                 ans['metadata'] = book_as_json(db, book_id)
                 user = rd.username or None
                 ans['last_read_positions'] = db.get_last_read_positions(book_id, fmt, user) if user else []
+                ans['annotations_map'] = db.annotations_map_for_book(book_id, fmt, user_type='web', user=user or '*')
                 return ans
             except EnvironmentError as e:
                 if e.errno != errno.ENOENT:
@@ -218,6 +224,50 @@ def set_last_read_position(ctx, rd, library_id, book_id, fmt):
     db.set_last_read_position(
         book_id, fmt, user=user, device=device, cfi=cfi or None, pos_frac=pos_frac)
     rd.outheaders['Content-type'] = 'text/plain'
+    return b''
+
+
+@endpoint('/book-get-annotations/{library_id}/{+which}', postprocess=json)
+def get_annotations(ctx, rd, library_id, which):
+    '''
+    Get annotations and last read position data for the specified books, where which is of the form:
+    book_id1-fmt1_book_id2-fmt2,...
+    '''
+    db = get_db(ctx, rd, library_id)
+    user = rd.username or '*'
+    ans = {}
+    allowed_book_ids = ctx.allowed_book_ids(rd, db)
+    for item in which.split('_'):
+        book_id, fmt = item.partition('-')[::2]
+        try:
+            book_id = int(book_id)
+        except Exception:
+            continue
+        if book_id not in allowed_book_ids:
+            continue
+        key = '{}:{}'.format(book_id, fmt)
+        ans[key] = {
+            'last_read_positions': db.get_last_read_positions(book_id, fmt, user),
+            'annotations_map': db.annotations_map_for_book(book_id, fmt, user_type='web', user=user) if user else {}
+        }
+    return ans
+
+
+@endpoint('/book-update-annotations/{library_id}/{book_id}/{+fmt}', types={'book_id': int}, methods=('POST',))
+def update_annotations(ctx, rd, library_id, book_id, fmt):
+    db = get_db(ctx, rd, library_id)
+    user = rd.username or '*'
+    if not ctx.has_id(rd, db, book_id):
+        raise BookNotFound(book_id, db)
+    try:
+        amap = jsonlib.load(rd.request_body_file)
+    except Exception:
+        raise HTTPNotFound('Invalid data')
+    alist = []
+    for val in itervalues(amap):
+        if val:
+            alist.extend(val)
+    db.merge_annotations_for_book(book_id, fmt, alist, user_type='web', user=user)
     return b''
 
 

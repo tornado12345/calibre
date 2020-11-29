@@ -23,15 +23,14 @@ static PyObject *HunspellError = NULL;
 static int
 init_type(Dictionary *self, PyObject *args, PyObject *kwds) {
 	char *dic = NULL, *aff = NULL;
-    Py_ssize_t diclen, afflen;
 
     self->handle = NULL;
     self->encoding = NULL;
 
-	if (!PyArg_ParseTuple(args, "s#s#", &dic, &diclen, &aff, &afflen)) return 1;
+	if (!PyArg_ParseTuple(args, "ss", &dic, &aff)) return 1;
 
     try {
-        self->handle = new (std::nothrow) Hunspell(aff, afflen, dic, diclen);
+        self->handle = new (std::nothrow) Hunspell(aff, dic);
     } catch (const std::exception &ex) {
         PyErr_SetString(HunspellError, ex.what());
         return 1;
@@ -58,35 +57,33 @@ dealloc(Dictionary *self) {
 
 static PyObject *
 recognized(Dictionary *self, PyObject *args) {
-	char *word = NULL;
-	if (!PyArg_ParseTuple(args, "es", self->encoding, &word)) return NULL;
+	char *w = NULL;
+	if (!PyArg_ParseTuple(args, "es", self->encoding, &w)) return NULL;
+    std::string word(w);
+    PyMem_Free(w);
 
-    if (self->handle->spell(word) == 0) { PyMem_Free(word); Py_RETURN_FALSE;}
-    PyMem_Free(word);
+    if (!self->handle->spell(word)) { Py_RETURN_FALSE;}
     Py_RETURN_TRUE;
 }
 
 static PyObject *
 suggest(Dictionary *self, PyObject *args) {
-	char *word = NULL, **slist = NULL;
-	int i, num_slist;
+	char *w = NULL;
 	PyObject *ans, *temp;
 
-	if (!PyArg_ParseTuple(args, "es", self->encoding, &word)) return NULL;
+	if (!PyArg_ParseTuple(args, "es", self->encoding, &w)) return NULL;
+    const std::string word(w);
+    PyMem_Free(w);
 
-	num_slist = self->handle->suggest(&slist, word);
-	ans = PyTuple_New(num_slist);
+    const std::vector<std::string>& word_list = self->handle->suggest(word);
+	ans = PyTuple_New(word_list.size());
     if (ans == NULL) PyErr_NoMemory();
-    else {
-        for (i = 0; i < num_slist; i++) {
-            temp = PyUnicode_Decode(slist[i], strlen(slist[i]), self->encoding, "strict");
-            if (temp == NULL) { Py_DECREF(ans); ans = NULL; break; }
-            PyTuple_SET_ITEM(ans, i, temp);
-        }
+    Py_ssize_t i = 0;
+    for(auto const& s: word_list) {
+        temp = PyUnicode_Decode(s.c_str(), s.size(), self->encoding, "strict");
+        if (temp == NULL) { Py_DECREF(ans); ans = NULL; break; }
+        PyTuple_SET_ITEM(ans, i++, temp);
     }
-
-    if (slist != NULL) self->handle->free_list(&slist, num_slist);
-    PyMem_Free(word);
 	return ans;
 }
 
@@ -169,42 +166,28 @@ static PyTypeObject DictionaryType = {
     /* tp_new            */ 0,
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-static struct PyModuleDef hunspell_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "hunspell",
-    /* m_doc      */ "A wrapper for the hunspell spell checking library",
-    /* m_size     */ -1,
-    /* m_methods  */ 0,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
-};
-
-CALIBRE_MODINIT_FUNC PyInit_hunspell(void) {
-    PyObject *mod = PyModule_Create(&hunspell_module);
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC inithunspell(void) {
-    PyObject *mod = Py_InitModule3("hunspell", NULL,
-        "A wrapper for the hunspell spell checking library");
-#endif
-    if (mod == NULL) INITERROR;
-
+static int
+exec_module(PyObject *mod) {
     HunspellError = PyErr_NewException((char*)"hunspell.HunspellError", NULL, NULL);
-    if (HunspellError == NULL) INITERROR;
+    if (HunspellError == NULL) return -1;
     PyModule_AddObject(mod, "HunspellError", HunspellError);
 
     // Fill in some slots in the type, and make it ready
     DictionaryType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&DictionaryType) < 0) INITERROR;
+    if (PyType_Ready(&DictionaryType) < 0) return -1;
     // Add the type to the module.
     Py_INCREF(&DictionaryType);
-    PyModule_AddObject(mod, "Dictionary", (PyObject *)&DictionaryType);
+    if (PyModule_AddObject(mod, "Dictionary", (PyObject *)&DictionaryType) != 0) return -1;
 
-#if PY_MAJOR_VERSION >= 3
-    return mod;
-#endif
+    return 0;
+}
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, (void*)exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {PyModuleDef_HEAD_INIT};
+
+CALIBRE_MODINIT_FUNC PyInit_hunspell(void) {
+	module_def.m_name = "hunspell";
+	module_def.m_slots = slots;
+	return PyModuleDef_Init(&module_def);
 }

@@ -81,30 +81,17 @@ static PyMethodDef unicode_names_methods[] = {
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-static struct PyModuleDef unicode_names_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "unicode_names",
-    /* m_doc      */ "A library to assist with selecting special characters",
-    /* m_size     */ -1,
-    /* m_methods  */ unicode_names_methods,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
+static int
+exec_module(PyObject *module) { return 0; }
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "unicode_names",
+    .m_doc      = "A library to assist with selecting special characters",
+    .m_methods  = unicode_names_methods,
+    .m_slots    = slots,
 };
 
-CALIBRE_MODINIT_FUNC PyInit_unicode_names(void) {
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC initunicode_names(void) {
-#endif
-    // Create the module
-#if PY_MAJOR_VERSION >= 3
-    PyObject *mod = PyModule_Create(&unicode_names_module);
-    return mod;
-#else
-    Py_InitModule3("unicode_names", unicode_names_methods, "");
-#endif
-}
+CALIBRE_MODINIT_FUNC PyInit_unicode_names(void) { return PyModuleDef_Init(&module_def); }

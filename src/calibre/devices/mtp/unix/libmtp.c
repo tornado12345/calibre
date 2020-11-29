@@ -86,7 +86,7 @@ static uint16_t data_to_python(void *params, void *priv, uint32_t sendlen, unsig
     cb = (ProgressCallback *)priv;
     *putlen = sendlen;
     PyEval_RestoreThread(cb->state);
-    res = PyObject_CallMethod(cb->extra, "write", "s#", data, (Py_ssize_t)sendlen);
+    res = PyObject_CallMethod(cb->extra, "write", "y#", data, (Py_ssize_t)sendlen);
     if (res == NULL) {
         ret = LIBMTP_HANDLER_RETURN_ERROR;
         *putlen = 0;
@@ -608,45 +608,44 @@ static PyGetSetDef Device_getsetters[] = {
 };
 
 static PyTypeObject DeviceType = { // {{{
-    PyObject_HEAD_INIT(NULL)
-    0,                         /*ob_size*/
-    "libmtp.Device",            /*tp_name*/
-    sizeof(Device),      /*tp_basicsize*/
-    0,                         /*tp_itemsize*/
-    (destructor)Device_dealloc, /*tp_dealloc*/
-    0,                         /*tp_print*/
-    0,                         /*tp_getattr*/
-    0,                         /*tp_setattr*/
-    0,                         /*tp_compare*/
-    0,                         /*tp_repr*/
-    0,                         /*tp_as_number*/
-    0,                         /*tp_as_sequence*/
-    0,                         /*tp_as_mapping*/
-    0,                         /*tp_hash */
-    0,                         /*tp_call*/
-    0,                         /*tp_str*/
-    0,                         /*tp_getattro*/
-    0,                         /*tp_setattro*/
-    0,                         /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT|Py_TPFLAGS_BASETYPE,        /*tp_flags*/
-    "Device",                  /* tp_doc */
-    0,		               /* tp_traverse */
-    0,		               /* tp_clear */
-    0,		               /* tp_richcompare */
-    0,		               /* tp_weaklistoffset */
-    0,		               /* tp_iter */
-    0,		               /* tp_iternext */
-    Device_methods,             /* tp_methods */
-    0,             /* tp_members */
-    Device_getsetters,                         /* tp_getset */
-    0,                         /* tp_base */
-    0,                         /* tp_dict */
-    0,                         /* tp_descr_get */
-    0,                         /* tp_descr_set */
-    0,                         /* tp_dictoffset */
-    (initproc)Device_init,      /* tp_init */
-    0,                         /* tp_alloc */
-    0,                 /* tp_new */
+    PyVarObject_HEAD_INIT(NULL, 0)
+    /* tp_name             */ "libmtp.Device",
+    /* tp_basicsize        */ sizeof(Device),
+    /* tp_itemsize         */ 0,
+    /* tp_dealloc          */ (destructor)Device_dealloc,
+    /* tp_print            */ 0,
+    /* tp_getattr          */ 0,
+    /* tp_setattr          */ 0,
+    /* tp_compare          */ 0,
+    /* tp_repr             */ 0,
+    /* tp_as_number        */ 0,
+    /* tp_as_sequence      */ 0,
+    /* tp_as_mapping       */ 0,
+    /* tp_hash             */ 0,
+    /* tp_call             */ 0,
+    /* tp_str              */ 0,
+    /* tp_getattro         */ 0,
+    /* tp_setattro         */ 0,
+    /* tp_as_buffer        */ 0,
+    /* tp_flags            */ Py_TPFLAGS_DEFAULT|Py_TPFLAGS_BASETYPE,
+    /* tp_doc              */ "Device",
+    /* tp_traverse         */ 0,
+    /* tp_clear            */ 0,
+    /* tp_richcompare      */ 0,
+    /* tp_weaklistoffset   */ 0,
+    /* tp_iter             */ 0,
+    /* tp_iternext         */ 0,
+    /* tp_methods          */ Device_methods,
+    /* tp_members          */ 0,
+    /* tp_getset           */ Device_getsetters,
+    /* tp_base             */ 0,
+    /* tp_dict             */ 0,
+    /* tp_descr_get        */ 0,
+    /* tp_descr_set        */ 0,
+    /* tp_dictoffset       */ 0,
+    /* tp_init             */ (initproc)Device_init,
+    /* tp_alloc            */ 0,
+    /* tp_new              */ 0,
 }; // }}}
 
 // }}} End Device object definition
@@ -695,6 +694,8 @@ known_devices(PyObject *self, PyObject *args) {
     return ans;
 }
 
+static char libmtp_doc[] = "Interface to libmtp.";
+
 static PyMethodDef libmtp_methods[] = {
     {"set_debug_level", set_debug_level, METH_VARARGS,
         "set_debug_level(level)\n\nSet the debug level bit mask, see LIBMTP_DEBUG_* constants."
@@ -710,21 +711,13 @@ static PyMethodDef libmtp_methods[] = {
 
     {NULL, NULL, 0, NULL}
 };
-
-
-CALIBRE_MODINIT_FUNC
-initlibmtp(void) {
-    PyObject *m;
-
+static int
+exec_module(PyObject *m) {
     DeviceType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&DeviceType) < 0)
-        return;
-
-    m = Py_InitModule3("libmtp", libmtp_methods, "Interface to libmtp.");
-    if (m == NULL) return;
+    if (PyType_Ready(&DeviceType) < 0) return -1;
 
     MTPError = PyErr_NewException("libmtp.MTPError", NULL, NULL);
-    if (MTPError == NULL) return;
+    if (MTPError == NULL) return -1;
     PyModule_AddObject(m, "MTPError", MTPError);
 
     // Redirect stdout to get rid of the annoying message about mtpz. Really,
@@ -754,4 +747,18 @@ initlibmtp(void) {
     PyModule_AddIntMacro(m, LIBMTP_DEBUG_USB);
     PyModule_AddIntMacro(m, LIBMTP_DEBUG_DATA);
     PyModule_AddIntMacro(m, LIBMTP_DEBUG_ALL);
+
+	return 0;
 }
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "libmtp",
+    .m_doc      = libmtp_doc,
+    .m_methods  = libmtp_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_libmtp(void) { return PyModuleDef_Init(&module_def); }

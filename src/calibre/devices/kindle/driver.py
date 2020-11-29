@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import print_function
+
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john at nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -9,12 +9,13 @@ __docformat__ = 'restructuredtext en'
 Device driver for Amazon's Kindle
 '''
 
-import datetime, os, re, sys, json, hashlib, errno
+import datetime, os, re, json, hashlib, errno
 
-from calibre.constants import DEBUG
+from calibre.constants import DEBUG, filesystem_encoding
 from calibre.devices.kindle.bookmark import Bookmark
 from calibre.devices.usbms.driver import USBMS
 from calibre import strftime, fsync, prints
+from polyglot.builtins import unicode_type, as_bytes, as_unicode
 
 '''
 Notes on collections:
@@ -37,6 +38,20 @@ Adding a book to a collection on the Kindle does not change the book file at all
 (i.e. it is binary identical). Therefore collection information is not stored in
 file metadata.
 '''
+
+
+def get_files_in(path):
+    if hasattr(os, 'scandir'):
+        for dir_entry in os.scandir(path):
+            if dir_entry.is_file(follow_symlinks=False):
+                yield dir_entry.name, dir_entry.stat(follow_symlinks=False)
+    else:
+        import stat
+        for x in os.listdir(path):
+            xp = os.path.join(path, x)
+            s = os.lstat(xp)
+            if stat.S_ISREG(s.st_mode):
+                yield x, s
 
 
 class KINDLE(USBMS):
@@ -110,20 +125,18 @@ class KINDLE(USBMS):
         else:
             mi = cls.metadata_from_formats([path])
         if mi.title == _('Unknown') or ('-asin' in mi.title and '-type' in mi.title):
+            path = as_unicode(path, filesystem_encoding, 'replace')
             match = cls.WIRELESS_FILE_NAME_PATTERN.match(os.path.basename(path))
             if match is not None:
                 mi.title = match.group('title')
-                if not isinstance(mi.title, unicode):
-                    mi.title = mi.title.decode(sys.getfilesystemencoding(),
-                                               'replace')
         return mi
 
     def get_annotations(self, path_map):
-        MBP_FORMATS = [u'azw', u'mobi', u'prc', u'txt']
+        MBP_FORMATS = ['azw', 'mobi', 'prc', 'txt']
         mbp_formats = set(MBP_FORMATS)
-        PDR_FORMATS = [u'pdf']
+        PDR_FORMATS = ['pdf']
         pdr_formats = set(PDR_FORMATS)
-        TAN_FORMATS = [u'tpz', u'azw1']
+        TAN_FORMATS = ['tpz', 'azw1']
         tan_formats = set(TAN_FORMATS)
 
         def get_storage():
@@ -200,7 +213,7 @@ class KINDLE(USBMS):
         return bookmarked_books
 
     def generate_annotation_html(self, bookmark):
-        from calibre.ebooks.BeautifulSoup import BeautifulSoup, Tag
+        from calibre.ebooks.BeautifulSoup import BeautifulSoup
         # Returns <div class="user_annotations"> ... </div>
         last_read_location = bookmark.last_read_location
         timestamp = datetime.datetime.utcfromtimestamp(bookmark.timestamp)
@@ -208,28 +221,25 @@ class KINDLE(USBMS):
 
         ka_soup = BeautifulSoup()
         dtc = 0
-        divTag = Tag(ka_soup,'div')
+        divTag = ka_soup.new_tag('div')
         divTag['class'] = 'user_annotations'
 
         # Add the last-read location
-        spanTag = Tag(ka_soup, 'span')
-        spanTag['style'] = 'font-weight:bold'
         if bookmark.book_format == 'pdf':
-            spanTag.insert(0,BeautifulSoup(
-                _("%(time)s<br />Last page read: %(loc)d (%(pr)d%%)") % dict(
-                    time=strftime(u'%x', timestamp.timetuple()),
+            markup = _("%(time)s<br />Last page read: %(loc)d (%(pr)d%%)") % dict(
+                    time=strftime('%x', timestamp.timetuple()),
                     loc=last_read_location,
-                    pr=percent_read)))
+                    pr=percent_read)
         else:
-            spanTag.insert(0,BeautifulSoup(
-                _("%(time)s<br />Last page read: Location %(loc)d (%(pr)d%%)") % dict(
+            markup = _("%(time)s<br />Last page read: Location %(loc)d (%(pr)d%%)") % dict(
                     time=strftime(u'%x', timestamp.timetuple()),
                     loc=last_read_location,
-                    pr=percent_read)))
+                    pr=percent_read)
+        spanTag = BeautifulSoup('<span style="font-weight:bold">' + markup + '</span>').find('span')
 
         divTag.insert(dtc, spanTag)
         dtc += 1
-        divTag.insert(dtc, Tag(ka_soup,'br'))
+        divTag.insert(dtc, ka_soup.new_tag('br'))
         dtc += 1
 
         if bookmark.user_notes:
@@ -260,15 +270,16 @@ class KINDLE(USBMS):
                                     typ=user_notes[location]['type']))
 
             for annotation in annotations:
-                divTag.insert(dtc, BeautifulSoup(annotation))
+                annot = BeautifulSoup('<span>' + annotation + '</span>').find('span')
+                divTag.insert(dtc, annot)
                 dtc += 1
 
         ka_soup.insert(0,divTag)
         return ka_soup
 
     def add_annotation_to_library(self, db, db_id, annotation):
-        from calibre.ebooks.BeautifulSoup import Tag
         from calibre.ebooks.metadata import MetaInformation
+        from calibre.ebooks.BeautifulSoup import prettify
 
         bm = annotation
         ignore_tags = {'Catalog', 'Clippings'}
@@ -287,13 +298,13 @@ class KINDLE(USBMS):
                 if set(mi.tags).intersection(ignore_tags):
                     return
                 if mi.comments:
-                    hrTag = Tag(user_notes_soup,'hr')
+                    hrTag = user_notes_soup.new_tag('hr')
                     hrTag['class'] = 'annotations_divider'
                     user_notes_soup.insert(0, hrTag)
 
-                mi.comments += unicode(user_notes_soup.prettify())
+                mi.comments += prettify(user_notes_soup)
             else:
-                mi.comments = unicode(user_notes_soup.prettify())
+                mi.comments = prettify(user_notes_soup)
             # Update library comments
             db.set_comment(db_id, mi.comments)
 
@@ -429,17 +440,23 @@ class KINDLE2(KINDLE):
             for x in items:
                 x = x[-40:]
                 if x not in path_map:
-                    path_map[x] = set([])
+                    path_map[x] = set()
                 path_map[x].add(col)
         if path_map:
             for book in bl:
                 path = '/mnt/us/'+book.lpath
-                h = hashlib.sha1(path).hexdigest()
+                h = hashlib.sha1(as_bytes(path)).hexdigest()
                 if h in path_map:
                     book.device_collections = list(sorted(path_map[h]))
 
-    # Detect if the product family needs .apnx files uploaded to sidecar folder
     def post_open_callback(self):
+        try:
+            self.sync_cover_thumbnails()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+        # Detect if the product family needs .apnx files uploaded to sidecar folder
         product_id = self.device_being_opened[1]
         self.sidecar_apnx = False
         if product_id > 0x3:
@@ -463,11 +480,14 @@ class KINDLE2(KINDLE):
         # Upload the apnx file
         self.upload_apnx(path, filename, metadata, filepath)
 
+    def amazon_system_thumbnails_dir(self):
+        return os.path.join(self._main_prefix, 'system', 'thumbnails')
+
     def thumbpath_from_filepath(self, filepath):
         from calibre.ebooks.metadata.kfx import (CONTAINER_MAGIC, read_book_key_kfx)
         from calibre.ebooks.mobi.reader.headers import MetadataHeader
         from calibre.utils.logging import default_log
-        thumb_dir = os.path.join(self._main_prefix, 'system', 'thumbnails')
+        thumb_dir = self.amazon_system_thumbnails_dir()
         if not os.path.exists(thumb_dir):
             return
         with lopen(filepath, 'rb') as f:
@@ -487,6 +507,10 @@ class KINDLE2(KINDLE):
                 'thumbnail_{uuid}_{cdetype}_portrait.jpg'.format(
                     uuid=uuid, cdetype=cdetype))
 
+    def amazon_cover_bug_cache_dir(self):
+        # see https://www.mobileread.com/forums/showthread.php?t=329945
+        return os.path.join(self._main_prefix, 'amazon-cover-bug')
+
     def upload_kindle_thumbnail(self, metadata, filepath):
         coverdata = getattr(metadata, 'thumbnail', None)
         if not coverdata or not coverdata[2]:
@@ -497,16 +521,55 @@ class KINDLE2(KINDLE):
             with lopen(tp, 'wb') as f:
                 f.write(coverdata[2])
                 fsync(f)
+            cache_dir = self.amazon_cover_bug_cache_dir()
+            try:
+                os.mkdir(cache_dir)
+            except EnvironmentError:
+                pass
+            with lopen(os.path.join(cache_dir, os.path.basename(tp)), 'wb') as f:
+                f.write(coverdata[2])
+                fsync(f)
+
+    def sync_cover_thumbnails(self):
+        import shutil
+        # See https://www.mobileread.com/forums/showthread.php?t=329945
+        # for why this is needed
+        if DEBUG:
+            prints('Syncing cover thumbnails to workaround amazon cover bug')
+        dest_dir = self.amazon_system_thumbnails_dir()
+        src_dir = self.amazon_cover_bug_cache_dir()
+        if not os.path.exists(dest_dir) or not os.path.exists(src_dir):
+            return
+        count = 0
+        for name, src_stat_result in get_files_in(src_dir):
+            dest_path = os.path.join(dest_dir, name)
+            try:
+                dest_stat_result = os.lstat(dest_path)
+            except EnvironmentError:
+                needs_sync = True
+            else:
+                needs_sync = src_stat_result.st_size != dest_stat_result.st_size
+            if needs_sync:
+                count += 1
+                if DEBUG:
+                    prints('Restoring cover thumbnail:', name)
+                with lopen(os.path.join(src_dir, name), 'rb') as src, lopen(dest_path, 'wb') as dest:
+                    shutil.copyfileobj(src, dest)
+                    fsync(dest)
+        if DEBUG:
+            prints('Restored {} cover thumbnails that were destroyed by Amazon'.format(count))
 
     def delete_single_book(self, path):
         try:
-            tp = self.thumbpath_from_filepath(path)
-            if tp:
-                try:
-                    os.remove(tp)
-                except EnvironmentError as err:
-                    if err.errno != errno.ENOENT:
-                        prints(u'Failed to delete thumbnail for {!r} at {!r} with error: {}'.format(path, tp, err))
+            tp1 = self.thumbpath_from_filepath(path)
+            if tp1:
+                tp2 = os.path.join(self.amazon_cover_bug_cache_dir(), os.path.basename(tp1))
+                for tp in (tp1, tp2):
+                    try:
+                        os.remove(tp)
+                    except EnvironmentError as err:
+                        if err.errno != errno.ENOENT:
+                            prints('Failed to delete thumbnail for {!r} at {!r} with error: {}'.format(path, tp, err))
         except Exception:
             import traceback
             traceback.print_exc()
@@ -547,7 +610,7 @@ class KINDLE2(KINDLE):
                 cust_col_name = opts.extra_customization[self.OPT_APNX_METHOD_COL]
                 if cust_col_name:
                     try:
-                        temp = unicode(metadata.get(cust_col_name)).lower()
+                        temp = unicode_type(metadata.get(cust_col_name)).lower()
                         if temp in self.EXTRA_CUSTOMIZATION_CHOICES[self.OPT_APNX_METHOD]:
                             method = temp
                         else:

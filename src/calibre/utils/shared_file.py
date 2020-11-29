@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2015, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -10,7 +9,7 @@ import os, sys
 
 from polyglot.builtins import reraise
 
-from calibre.constants import iswindows, plugins
+from calibre.constants import iswindows
 
 '''
 This module defines a share_open() function which is a replacement for
@@ -29,109 +28,31 @@ directory until all file handles are closed. To get around this, rename the
 file before deleting it.
 '''
 
-speedup, err = plugins['speedup']
-
-if not speedup:
-    raise RuntimeError('Failed to load the speedup plugin with error: %s' % err)
-
-valid_modes = {'a', 'a+', 'a+b', 'ab', 'r', 'rb', 'r+', 'r+b', 'w', 'wb', 'w+', 'w+b'}
-
-
-def validate_mode(mode):
-    return mode in valid_modes
-
-
-class FlagConstants(object):
-
-    def __init__(self):
-        for x in 'APPEND CREAT TRUNC EXCL RDWR RDONLY WRONLY'.split():
-            x = 'O_' + x
-            setattr(self, x, getattr(os, x))
-        for x in 'RANDOM SEQUENTIAL TEXT BINARY'.split():
-            x = 'O_' + x
-            setattr(self, x, getattr(os, x, 0))
-
-
-fc = FlagConstants()
-
-
-def flags_from_mode(mode):
-    if not validate_mode(mode):
-        raise ValueError('The mode is invalid')
-    m = mode[0]
-    random = '+' in mode
-    binary = 'b' in mode
-    if m == 'a':
-        flags = fc.O_APPEND | fc.O_CREAT
-        if random:
-            flags |= fc.O_RDWR | fc.O_RANDOM
-        else:
-            flags |= fc.O_WRONLY | fc.O_SEQUENTIAL
-    elif m == 'r':
-        if random:
-            flags = fc.O_RDWR | fc.O_RANDOM
-        else:
-            flags = fc.O_RDONLY | fc.O_SEQUENTIAL
-    elif m == 'w':
-        if random:
-            flags = fc.O_RDWR | fc.O_RANDOM
-        else:
-            flags = fc.O_WRONLY | fc.O_SEQUENTIAL
-        flags |= fc.O_TRUNC | fc.O_CREAT
-    flags |= (fc.O_BINARY if binary else fc.O_TEXT)
-    return flags
-
-
 if iswindows:
     from numbers import Integral
     import msvcrt
-    import win32file, pywintypes
-    CREATE_NEW                  = win32file.CREATE_NEW
-    CREATE_ALWAYS               = win32file.CREATE_ALWAYS
-    OPEN_EXISTING               = win32file.OPEN_EXISTING
-    OPEN_ALWAYS                 = win32file.OPEN_ALWAYS
-    TRUNCATE_EXISTING           = win32file.TRUNCATE_EXISTING
-    FILE_SHARE_READ             = win32file.FILE_SHARE_READ
-    FILE_SHARE_WRITE            = win32file.FILE_SHARE_WRITE
-    FILE_SHARE_DELETE           = win32file.FILE_SHARE_DELETE
-    FILE_SHARE_VALID_FLAGS      = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-    FILE_ATTRIBUTE_READONLY     = win32file.FILE_ATTRIBUTE_READONLY
-    FILE_ATTRIBUTE_NORMAL       = win32file.FILE_ATTRIBUTE_NORMAL
-    FILE_ATTRIBUTE_TEMPORARY    = win32file.FILE_ATTRIBUTE_TEMPORARY
-    FILE_FLAG_DELETE_ON_CLOSE   = win32file.FILE_FLAG_DELETE_ON_CLOSE
-    FILE_FLAG_SEQUENTIAL_SCAN   = win32file.FILE_FLAG_SEQUENTIAL_SCAN
-    FILE_FLAG_RANDOM_ACCESS     = win32file.FILE_FLAG_RANDOM_ACCESS
-    GENERIC_READ                = win32file.GENERIC_READ & 0xffffffff
-    GENERIC_WRITE               = win32file.GENERIC_WRITE & 0xffffffff
-    DELETE                      = 0x00010000
+    from calibre_extensions import winutil
 
     _ACCESS_MASK = os.O_RDONLY | os.O_WRONLY | os.O_RDWR
     _ACCESS_MAP  = {
-        os.O_RDONLY : GENERIC_READ,
-        os.O_WRONLY : GENERIC_WRITE,
-        os.O_RDWR   : GENERIC_READ | GENERIC_WRITE
+        os.O_RDONLY : winutil.GENERIC_READ,
+        os.O_WRONLY : winutil.GENERIC_WRITE,
+        os.O_RDWR   : winutil.GENERIC_READ | winutil.GENERIC_WRITE
     }
 
     _CREATE_MASK = os.O_CREAT | os.O_EXCL | os.O_TRUNC
     _CREATE_MAP  = {
-        0                                   : OPEN_EXISTING,
-        os.O_EXCL                           : OPEN_EXISTING,
-        os.O_CREAT                          : OPEN_ALWAYS,
-        os.O_CREAT | os.O_EXCL              : CREATE_NEW,
-        os.O_CREAT | os.O_TRUNC | os.O_EXCL : CREATE_NEW,
-        os.O_TRUNC                          : TRUNCATE_EXISTING,
-        os.O_TRUNC | os.O_EXCL              : TRUNCATE_EXISTING,
-        os.O_CREAT | os.O_TRUNC             : CREATE_ALWAYS
+        0                                   : winutil.OPEN_EXISTING,
+        os.O_EXCL                           : winutil.OPEN_EXISTING,
+        os.O_CREAT                          : winutil.OPEN_ALWAYS,
+        os.O_CREAT | os.O_EXCL              : winutil.CREATE_NEW,
+        os.O_CREAT | os.O_TRUNC | os.O_EXCL : winutil.CREATE_NEW,
+        os.O_TRUNC                          : winutil.TRUNCATE_EXISTING,
+        os.O_TRUNC | os.O_EXCL              : winutil.TRUNCATE_EXISTING,
+        os.O_CREAT | os.O_TRUNC             : winutil.CREATE_ALWAYS
     }
 
-    def raise_winerror(pywinerr):
-        reraise(
-            WindowsError,
-            WindowsError(pywinerr.winerror,
-                         (pywinerr.funcname or '') + b': ' + (pywinerr.strerror or '')),
-            sys.exc_info()[2])
-
-    def os_open(path, flags, mode=0o777, share_flags=FILE_SHARE_VALID_FLAGS):
+    def os_open(path, flags, mode=0o777, share_flags=winutil.FILE_SHARE_VALID_FLAGS):
         '''
         Replacement for os.open() allowing moving or unlinking before closing
         '''
@@ -140,47 +61,42 @@ if iswindows:
         if not isinstance(mode, Integral):
             raise TypeError('mode must be an integer')
 
-        if share_flags & ~FILE_SHARE_VALID_FLAGS:
+        if share_flags & ~winutil.FILE_SHARE_VALID_FLAGS:
             raise ValueError('bad share_flags: %r' % share_flags)
 
         access_flags = _ACCESS_MAP[flags & _ACCESS_MASK]
         create_flags = _CREATE_MAP[flags & _CREATE_MASK]
-        attrib_flags = FILE_ATTRIBUTE_NORMAL
+        attrib_flags = winutil.FILE_ATTRIBUTE_NORMAL
 
         if flags & os.O_CREAT and mode & ~0o444 == 0:
-            attrib_flags = FILE_ATTRIBUTE_READONLY
+            attrib_flags = winutil.FILE_ATTRIBUTE_READONLY
 
         if flags & os.O_TEMPORARY:
-            share_flags |= FILE_SHARE_DELETE
-            attrib_flags |= FILE_FLAG_DELETE_ON_CLOSE
-            access_flags |= DELETE
+            share_flags |= winutil.FILE_SHARE_DELETE
+            attrib_flags |= winutil.FILE_FLAG_DELETE_ON_CLOSE
+            access_flags |= winutil.DELETE
 
         if flags & os.O_SHORT_LIVED:
-            attrib_flags |= FILE_ATTRIBUTE_TEMPORARY
+            attrib_flags |= winutil.FILE_ATTRIBUTE_TEMPORARY
 
         if flags & os.O_SEQUENTIAL:
-            attrib_flags |= FILE_FLAG_SEQUENTIAL_SCAN
+            attrib_flags |= winutil.FILE_FLAG_SEQUENTIAL_SCAN
 
         if flags & os.O_RANDOM:
-            attrib_flags |= FILE_FLAG_RANDOM_ACCESS
+            attrib_flags |= winutil.FILE_FLAG_RANDOM_ACCESS
 
-        try:
-            h = win32file.CreateFileW(
-                path, access_flags, share_flags, None, create_flags, attrib_flags, None)
-        except pywintypes.error as e:
-            raise_winerror(e)
-        ans = msvcrt.open_osfhandle(h, flags | os.O_NOINHERIT)
-        h.Detach()  # We dont want the handle to be automatically closed when h is deleted
+        h = winutil.create_file(
+            path, access_flags, share_flags, create_flags, attrib_flags)
+        ans = msvcrt.open_osfhandle(int(h), flags | os.O_NOINHERIT)
+        h.detach()
         return ans
 
-    def share_open(path, mode='r', buffering=-1):
-        flags = flags_from_mode(mode)
-        return speedup.fdopen(os_open(path, flags), path, mode, buffering)
+    def share_open(*a, **kw):
+        kw['opener'] = os_open
+        return open(*a, **kw)
 
 else:
-    def share_open(path, mode='r', buffering=-1):
-        flags = flags_from_mode(mode) | speedup.O_CLOEXEC
-        return speedup.fdopen(os.open(path, flags), path, mode, buffering)
+    share_open = open
 
     def raise_winerror(x):
         reraise(NotImplementedError, None, sys.exc_info()[2])
@@ -217,3 +133,8 @@ def find_tests():
                 eq(f3.read(100), b'b' * 100)
 
     return unittest.defaultTestLoader.loadTestsFromTestCase(SharedFileTest)
+
+
+def run_tests():
+    from calibre.utils.run_tests import run_tests
+    run_tests(find_tests)

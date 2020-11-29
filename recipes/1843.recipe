@@ -1,9 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+from __future__ import absolute_import, division, print_function, unicode_literals
 from calibre.web.feeds.recipes import BasicNewsRecipe
 
 
@@ -16,16 +15,39 @@ def classes(classes):
 class E1843(BasicNewsRecipe):
     title = '1843'
     __author__ = 'Kovid Goyal'
-    language = 'en'
+    description = 'The ideas, culture and lifestyle magazine from The Economist'
+    language = 'en_GB'
     no_stylesheets = True
     remove_javascript = True
-    oldest_article = 365
     encoding = 'utf-8'
-    feeds = [
-        'https://www.1843magazine.com/rss/content',
-    ]
 
     keep_only_tags = [
-        dict(name='h1', attrs={'class': lambda x: x and 'title' in x.split()}),
-        classes('field-name-field-rubric-summary article-header__overlay-main-image meta-info__author article__body'),
+        dict(id='content')
     ]
+    remove_tags = [
+        classes('advert ad ds-share-list article__wordmark related-articles newsletter-signup')
+    ]
+
+    def parse_index(self):
+        soup = self.index_to_soup('https://economist.com/1843/')
+        ans = []
+
+        for a in soup.findAll(**classes('headline-link')):
+            url = a['href']
+            if url.startswith('/'):
+                url = 'https://economist.com' + url
+            title = self.tag_to_string(a)
+            self.log(title, ' at ', url)
+            desc = ''
+            d = a.parent.findNextSibling(itemprop='description')
+            if d is not None:
+                desc = self.tag_to_string(d)
+            ans.append({'title': title, 'url': url, 'description': desc})
+        return [('Articles', ans)]
+
+    def postprocess_html(self, soup, *a):
+        main = soup.find(id='content')
+        header = soup.find(**classes('article__header'))
+        header.extract()
+        main.insert(0, header)
+        return soup

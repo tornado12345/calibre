@@ -26,7 +26,7 @@ Basic workflow
 ---------------
 
 .. note::
-    A video tour of the calibre editor is available `here
+    A video tour of the calibre E-book editor is available `here
     <https://calibre-ebook.com/demo#tutorials>`_.
 
 When you first open a book with the Edit book tool, you will be presented with
@@ -99,8 +99,8 @@ name, calibre will take care of the rest.
 You can also bulk rename many files at once. This is useful
 if you want the files to have some simple name pattern. For example you might
 want to rename all the HTML files to have names Chapter-1.html, Chapter-2.html
-and so on. Select the files you want bulk renamed by holding down the Shift or
-Ctrl key and clicking the files. Then right click and select :guilabel:`Bulk
+and so on. Select the files you want bulk renamed by holding down the :kbd:`Shift` or
+:kbd:`Ctrl` key and clicking the files. Then right click and select :guilabel:`Bulk
 rename`. Enter a prefix and what number you would like the automatic numbering
 to start at, click OK and you are done. The bulk rename dialog also lets you
 rename files by the order they appear in the book instead of the order you
@@ -119,7 +119,7 @@ can sometimes be useful to have everything in a single file. Be wary, though,
 putting a lot of content into a single file will cause performance problems
 when viewing the book in a typical e-book reader.
 
-To merge multiple files together, select them by holding the Ctrl key and
+To merge multiple files together, select them by holding the :kbd:`Ctrl` key and
 clicking on them (make sure you only select files of one type, either all HTML
 files or all CSS files and so on). Then right click and select merge. That's
 all, calibre will merge the files, automatically taking care of migrating all
@@ -258,7 +258,7 @@ click in the Find box and select :guilabel:`Save current search`.
 You can bring up the saved searches via :guilabel:`Search->Saved
 searches`. This will present you with a list of search and replace expressions
 that you can apply. You can even select multiple entries in the list by holding
-down the Ctrl Key while clicking so as to run multiple search and replace
+down the :kbd:`Ctrl` key while clicking so as to run multiple search and replace
 expressions in a single operation.
 
 Function mode
@@ -567,7 +567,7 @@ Splitting HTML files
 .. |spmb| image:: images/split-button.png
 
 One, perhaps non-obvious, use of the preview panel is to split long HTML files.
-While viewing the file you want to split, click the :guilabel:`split mode`
+While viewing the file you want to split, click the :guilabel:`Split mode`
 button under the preview panel |spmb|. Then simply move your mouse to the place
 where you want to split the file and click. A thick green line will show you
 exactly where the split will happen as you move your mouse. Once you have found
@@ -670,8 +670,8 @@ common in your book and to run a simple search and replace on individual words.
 
 .. note::
     If you make any changes to the book by editing files while the spell check
-    tool is open, you should click the :guilabel:`Refresh` button in the spell
-    check tool. If you do not do this and continue to use the spell check tool,
+    tool is open, you should click the :guilabel:`Refresh` button in the Spell
+    check tool. If you do not do this and continue to use the Spell check tool,
     you could lose the changes you have made in the editor.
 
 Adding new dictionaries
@@ -682,15 +682,15 @@ Spanish languages. You can install your own dictionaries via
 :guilabel:`Preferences->Editor->Manage spelling dictionaries`. The spell
 checker can use dictionaries from the LibreOffice program (in the .oxt
 format). You can download these dictionaries from
-`The LibreOffice Extensions repository <https://extensions.libreoffice.org/extension-center?getCategories=Dictionary&getCompatibility=any&sort_on=positive_ratings>`_.
+`The LibreOffice Extensions repository <https://extensions.libreoffice.org/?Tags%5B%5D=50>`_.
 
 
 Inserting special characters
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 You can insert characters that are difficult to type by using the
-:guilabel:`Edit->Insert special character` tool. This shows you all unicode
-characters, simply click on the character you want to type. If you hold Ctrl
+:guilabel:`Edit->Insert special character` tool. This shows you all Unicode
+characters, simply click on the character you want to type. If you hold :kbd:`Ctrl`
 while clicking, the window will close itself after inserting the selected
 character. This tool can be used to insert special characters into the main
 text or into any other area of the user interface, such as the Search and
@@ -704,12 +704,12 @@ favorites by clicking the :guilabel:`Re-arrange favorites` button and then drag
 and dropping the characters in favorites around.
 
 You can also directly type in special characters using the keyboard. To do
-this, you type the unicode code for the character (in hexadecimal) and then
-press the :guilabel:`Alt+X` key which will convert the previously typed code
+this, you type the Unicode code for the character (in hexadecimal) and then
+press the :kbd:`Alt+X` key which will convert the previously typed code
 into the corresponding character. For example, to type ÿ you would type ff and
-then Alt+X. To type a non-breaking space you would use a0 and then
-:guilabel:`Alt+X`, to type the horizontal ellipsis you would use 2026 and
-:guilabel:`Alt+X` and so on.
+then :kbd:`Alt+X`. To type a non-breaking space you would use a0 and then
+:kbd:`Alt+X`, to type the horizontal ellipsis you would use 2026 and
+:kbd:`Alt+X` and so on.
 
 Finally, you can type in special characters by using HTML named entities. For
 example, typing &nbsp; will be replaced by a non breaking space when you type the
@@ -802,7 +802,8 @@ The HTML editor has very sophisticated syntax highlighting. Features include:
     * The text inside bold, italic and heading tags is made bold/italic
     * As you move your cursor through the HTML, the matching HTML tags are
       highlighted, and you can jump to the opening or closing tag with the
-      keyboard shortcuts :kbd:`Ctrl+{` and :kbd:`Ctrl+}`
+      keyboard shortcuts :kbd:`Ctrl+{` and :kbd:`Ctrl+}`. Similarly, you
+      can select the contents of a tag with :kbd:`Ctrl+Alt+T`.
     * Invalid HTML is highlighted with a red underline
     * Spelling errors in the text inside HTML tags and attributes such as title
       are highlighted. The spell checking is language aware, based on the value
@@ -819,7 +820,7 @@ Context sensitive help
 
 You can right click on an HTML tag name or a CSS property name to get help for that tag or property.
 
-You can also hold down the Ctrl key and click on any filename inside a link tag
+You can also hold down the :kbd:`Ctrl` key and click on any filename inside a link tag
 to open that file in the editor automatically.
 
 .. _editor_auto_complete:
@@ -850,7 +851,7 @@ find it saves you a lot of time and effort.
 Snippets
 ^^^^^^^^^^^^^^^
 
-The calibre editor supports *snippets*. A snippet is a
+The calibre E-book editor supports *snippets*. A snippet is a
 piece of text that is either re-used often or contains a lot of redundant
 text. The editor allows you to insert a snippet with only a few key strokes.
 The snippets are very powerful, with many features, such as placeholders you

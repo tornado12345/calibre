@@ -632,12 +632,7 @@ bzz_decompress(PyObject *self, PyObject *args) {
     size_t buflen = 0, blocksize = MAXBLOCK * 1024;
     PyObject *ans = NULL;
 
-#if PY_MAJOR_VERSION >= 3
-#define BYTES_FMT "y#"
-#else
-#define BYTES_FMT "s#"
-#endif
-    if (!PyArg_ParseTuple(args, BYTES_FMT, &(state.raw), &input_len))
+    if (!PyArg_ParseTuple(args, "y#", &(state.raw), &input_len))
 		return NULL;
     state.end = state.raw + input_len - 1;
 
@@ -681,7 +676,7 @@ end:
         for (i = 0; i < 3; i++) {
             buflen <<= 8; buflen += (uint8_t)buf[i];
         }
-        ans = Py_BuildValue(BYTES_FMT, buf + 3, MIN(buflen, pos - buf));
+        ans = Py_BuildValue("y#", buf + 3, MIN(buflen, pos - buf));
     }
     if (buf != NULL) free(buf);
     if (PyErr_Occurred()) return NULL;
@@ -699,32 +694,16 @@ static PyMethodDef bzzdec_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-#define INITMODULE PyModule_Create(&bzzdec_module)
-static struct PyModuleDef bzzdec_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "bzzdec",
-    /* m_doc      */ bzzdec_doc,
-    /* m_size     */ -1,
-    /* m_methods  */ bzzdec_methods,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
-};
-CALIBRE_MODINIT_FUNC PyInit_bzzdec(void) {
-#else
-#define INITERROR return
-#define INITMODULE Py_InitModule3("bzzdec", bzzdec_methods, bzzdec_doc)
-CALIBRE_MODINIT_FUNC initbzzdec(void) {
-#endif
+static int
+exec_module(PyObject *module) { return 0; }
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
 
-    PyObject *m = INITMODULE;
-    if (m == NULL) {
-        INITERROR;
-    }
-#if PY_MAJOR_VERSION >= 3
-    return m;
-#endif
-}
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "bzzdec",
+    .m_doc      = bzzdec_doc,
+    .m_methods  = bzzdec_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_bzzdec(void) { return PyModuleDef_Init(&module_def); }

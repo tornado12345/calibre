@@ -1,14 +1,14 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import subprocess, sys, os, pprint, signal, time, glob, io
+import subprocess, os, pprint, signal, time, glob, io
 pprint, io
+from polyglot.builtins import environ_item
 
 
 def build(mod='wpd'):
@@ -42,19 +42,11 @@ def build(mod='wpd'):
 
 def main():
     fp, d = os.path.abspath(__file__), os.path.dirname
-    if b'CALIBRE_DEVELOP_FROM' not in os.environ:
+    if 'CALIBRE_DEVELOP_FROM' not in os.environ:
         env = os.environ.copy()
-        env[b'CALIBRE_DEVELOP_FROM'] = bytes(d(d(d(d(d(fp))))))
+        env['CALIBRE_DEVELOP_FROM'] = environ_item(d(d(d(d(d(fp))))))
         subprocess.call(['calibre-debug', '-e', fp], env=env)
         return
-
-    sys.path.insert(0, os.path.dirname(fp))
-    if 'wpd' in sys.modules:
-        del sys.modules['wpd']
-    import wpd
-    from calibre.constants import plugins
-    plugins._plugins['wpd'] = (wpd, '')
-    sys.path.pop(0)
 
     # from calibre.devices.mtp.test import run
     # run()

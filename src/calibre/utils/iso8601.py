@@ -1,17 +1,12 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 from datetime import datetime
 
 from dateutil.tz import tzlocal, tzutc, tzoffset
-
-from calibre.constants import plugins
-speedup, err = plugins['speedup']
-if not speedup:
-    raise RuntimeError(err)
+from calibre_extensions import speedup
 
 
 class SafeLocalTimeZone(tzlocal):
@@ -43,7 +38,7 @@ del tzutc, tzlocal
 UNDEFINED_DATE = datetime(101,1,1, tzinfo=utc_tz)
 
 
-def parse_iso8601(date_string, assume_utc=False, as_utc=True):
+def parse_iso8601(date_string, assume_utc=False, as_utc=True, require_aware=False):
     if not date_string:
         return UNDEFINED_DATE
     dt, aware, tzseconds = speedup.parse_iso8601(date_string)
@@ -55,6 +50,8 @@ def parse_iso8601(date_string, assume_utc=False, as_utc=True):
             sign = '-' if tzseconds < 0 else '+'
             description = "%s%02d:%02d" % (sign, abs(tzseconds) // 3600, (abs(tzseconds) % 3600) // 60)
             tz = tzoffset(description, tzseconds)
+    elif require_aware:
+        raise ValueError('{} does not specify a time zone'.format(date_string))
     dt = dt.replace(tzinfo=tz)
     if as_utc and tz is utc_tz:
         return dt

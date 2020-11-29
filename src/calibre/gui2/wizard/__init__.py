@@ -1,33 +1,32 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import with_statement
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, traceback, re
-from contextlib import closing
+import os
+import re
+import traceback
+from contextlib import closing, suppress
+from PyQt5.Qt import (
+    QAbstractListModel, QDir, QIcon, QItemSelection, QItemSelectionModel, Qt,
+    QWizard, QWizardPage, pyqtSignal
+)
 
-
-from PyQt5.Qt import (QWizard, QWizardPage, QIcon, Qt, QAbstractListModel,
-    QItemSelectionModel, pyqtSignal, QItemSelection, QDir)
 from calibre import __appname__
-from calibre.constants import (filesystem_encoding, iswindows, plugins,
-        isportable)
-from calibre.gui2.wizard.send_email import smtp_prefs
+from calibre.constants import filesystem_encoding, isportable, iswindows
+from calibre.gui2 import choose_dir, error_dialog
 from calibre.gui2.wizard.device_ui import Ui_WizardPage as DeviceUI
-from calibre.gui2.wizard.library_ui import Ui_WizardPage as LibraryUI
 from calibre.gui2.wizard.finish_ui import Ui_WizardPage as FinishUI
 from calibre.gui2.wizard.kindle_ui import Ui_WizardPage as KindleUI
+from calibre.gui2.wizard.library_ui import Ui_WizardPage as LibraryUI
+from calibre.gui2.wizard.send_email import smtp_prefs
 from calibre.gui2.wizard.stanza_ui import Ui_WizardPage as StanzaUI
-from calibre.utils.localization import localize_user_manual_link
-
 from calibre.utils.config import dynamic, prefs
-from calibre.gui2 import choose_dir, error_dialog
-
-if iswindows:
-    winutil = plugins['winutil'][0]
+from calibre.utils.localization import localize_user_manual_link
+from polyglot.builtins import iteritems, map, unicode_type
 
 # Devices {{{
 
@@ -36,7 +35,7 @@ class Device(object):
 
     output_profile = 'generic_eink'
     output_format = 'EPUB'
-    name = 'Generic e-ink device'
+    name = _('Generic e-ink device')
     manufacturer = 'Generic'
     id = 'default'
     supports_color = False
@@ -68,14 +67,14 @@ class Device(object):
 class Smartphone(Device):
 
     id = 'smartphone'
-    name = 'Smartphone'
+    name = _('Smartphone')
     supports_color = True
 
 
 class Tablet(Device):
 
     id = 'tablet'
-    name = 'iPad like tablet'
+    name = _('iPad like tablet')
     output_profile = 'tablet'
     supports_color = True
 
@@ -84,7 +83,7 @@ class Kindle(Device):
 
     output_profile = 'kindle'
     output_format  = 'MOBI'
-    name = 'Kindle Basic (all models)'
+    name = _('Kindle Basic (all models)')
     manufacturer = 'Amazon'
     id = 'kindle'
 
@@ -116,7 +115,7 @@ class KindleDX(Kindle):
 
 
 class KindleFire(KindleDX):
-    name = 'Kindle Fire and Fire HD'
+    name = _('{0} and {1}').format('Kindle Fire', 'Fire HD')
     id = 'kindle_fire'
     output_profile = 'kindle_fire'
     supports_color = True
@@ -137,14 +136,14 @@ class KindleVoyage(Kindle):
 class Sony505(Device):
 
     output_profile = 'sony'
-    name = 'All other SONY devices'
+    name = _('All other SONY devices')
     output_format = 'EPUB'
     manufacturer = 'SONY'
     id = 'prs505'
 
 
 class Kobo(Device):
-    name = 'Kobo and Kobo Touch Readers'
+    name = _('Kobo and Kobo Touch Readers')
     manufacturer = 'Kobo'
     output_profile = 'kobo'
     output_format = 'EPUB'
@@ -152,7 +151,7 @@ class Kobo(Device):
 
 
 class KoboVox(Kobo):
-    name = 'Kobo Vox, Aura and Glo families'
+    name = _('Kobo Vox, Aura and Glo families')
     output_profile = 'tablet'
     id = 'kobo_vox'
 
@@ -192,7 +191,7 @@ class BooqCervantes(Booq):
 
 
 class BOOX(Device):
-    name = 'BOOX MAX, N96, i86, C67ML, M96, etc.'
+    name = _('BOOX MAX, N96, i86, C67ML, M96, etc.')
     manufacturer = 'Onyx'
     output_profile = 'generic_eink_hd'
     output_format = 'EPUB'
@@ -222,7 +221,7 @@ class SonyT3(Sony505):
 
 class Nook(Sony505):
     id = 'nook'
-    name = 'Nook and Nook Simple Reader'
+    name = _('{0} and {1}').format('Nook', 'Nook Simple Reader')
     manufacturer = 'Barnes & Noble'
     output_profile = 'nook'
 
@@ -276,10 +275,17 @@ class CybookMuse(CybookOpus):
     output_profile = 'tablet'
 
 
+class BookeenDiva(CybookOpus):
+
+    name = 'Bookeen Diva HD'
+    id = 'bookeen_diva'
+    output_profile = 'tablet'
+
+
 class PocketBook360(CybookOpus):
 
     manufacturer = 'PocketBook'
-    name = 'PocketBook 360 and newer models'
+    name = _('PocketBook 360 and newer models')
     id = 'pocketbook360'
     output_profile = 'cybook_opus'
 
@@ -318,7 +324,7 @@ class iPhone(Device):
 
 class Android(Device):
 
-    name = 'Android phone'
+    name = _('Android phone')
     output_format = 'EPUB'
     manufacturer = 'Android'
     id = 'android'
@@ -335,14 +341,14 @@ class Android(Device):
 
 class AndroidTablet(Android):
 
-    name = 'Android tablet'
+    name = _('Android tablet')
     id = 'android_tablet'
     output_profile = 'tablet'
 
 
 class AndroidPhoneWithKindle(Android):
 
-    name = 'Android phone with Kindle reader'
+    name = _('Android phone with Kindle reader')
     output_format = 'MOBI'
     id = 'android_phone_with_kindle'
     output_profile = 'kindle'
@@ -358,7 +364,7 @@ class AndroidPhoneWithKindle(Android):
 
 class AndroidTabletWithKindle(AndroidPhoneWithKindle):
 
-    name = 'Android tablet with Kindle reader'
+    name = _('Android tablet with Kindle reader')
     id = 'android_tablet_with_kindle'
     output_profile = 'kindle_fire'
 
@@ -416,7 +422,7 @@ def get_devices():
 
 
 def get_manufacturers():
-    mans = set([])
+    mans = set()
     for x in get_devices():
         mans.add(x.manufacturer)
     if Device.manufacturer in mans:
@@ -426,7 +432,7 @@ def get_manufacturers():
 
 def get_devices_of(manufacturer):
     ans = [d for d in get_devices() if d.manufacturer == manufacturer]
-    return sorted(ans, cmp=lambda x,y:cmp(x.name, y.name))
+    return sorted(ans, key=lambda x: x.name)
 
 
 class ManufacturerModel(QAbstractListModel):
@@ -443,7 +449,10 @@ class ManufacturerModel(QAbstractListModel):
 
     def data(self, index, role):
         if role == Qt.DisplayRole:
-            return (self.manufacturers[index.row()])
+            ans = self.manufacturers[index.row()]
+            if ans == Device.manufacturer:
+                ans = _('Generic')
+            return ans
         if role == Qt.UserRole:
             return self.manufacturers[index.row()]
         return None
@@ -491,7 +500,7 @@ class KindlePage(QWizardPage, KindleUI):
         opts = smtp_prefs().parse()
         accs = []
         has_default = False
-        for x, ac in opts.accounts.iteritems():
+        for x, ac in iteritems(opts.accounts):
             default = ac[2]
             if x.strip().endswith('@kindle.com'):
                 accs.append((x, default))
@@ -503,14 +512,14 @@ class KindlePage(QWizardPage, KindleUI):
             self.to_address.setText(accs[0][0])
 
         def x():
-            t = unicode(self.to_address.text())
+            t = unicode_type(self.to_address.text())
             if t.strip():
                 return t.strip()
 
         self.send_email_widget.initialize(x)
 
     def commit(self):
-        x = unicode(self.to_address.text()).strip()
+        x = unicode_type(self.to_address.text()).strip()
         parts = x.split('@')
 
         if (len(parts) >= 2 and parts[0] and self.send_email_widget.set_email_settings(True)):
@@ -571,8 +580,8 @@ class StanzaPage(QWizardPage, StanzaUI):
             for p in range(8080, 8100):
                 try:
                     s.bind(('0.0.0.0', p))
-                    t = unicode(self.instructions.text())
-                    t = re.sub(r':\d+', ':'+str(p), t)
+                    t = unicode_type(self.instructions.text())
+                    t = re.sub(r':\d+', ':'+unicode_type(p), t)
                     self.instructions.setText(t)
                     return p
                 except:
@@ -591,7 +600,7 @@ class DevicePage(QWizardPage, DeviceUI):
 
     def initializePage(self):
         self.label.setText(_('Choose your e-book device. If your device is'
-            ' not in the list, choose a "%s" device.')%Device.manufacturer)
+            ' not in the list, choose a "Generic" device.'))
         self.man_model = ManufacturerModel()
         self.manufacturer_view.setModel(self.man_model)
         previous = dynamic.get('welcome_wizard_device', False)
@@ -646,26 +655,40 @@ class LibraryPage(QWizardPage, LibraryUI):
 
     def __init__(self):
         QWizardPage.__init__(self)
+        self.made_dirs = []
+        self.initial_library_location = None
         self.setupUi(self)
         self.registerField('library_location', self.location)
         self.button_change.clicked.connect(self.change)
         self.init_languages()
         self.language.currentIndexChanged[int].connect(self.change_language)
         self.location.textChanged.connect(self.location_text_changed)
+        self.set_move_lib_label_text()
+
+    def makedirs(self, x):
+        self.made_dirs.append(x)
+        os.makedirs(x)
+
+    def location_text_changed(self, newtext):
+        self.completeChanged.emit()
+
+    def set_move_lib_label_text(self):
         self.move_lib_label.setText(_(
             'If you are moving calibre from an old computer to a new one,'
             ' please read <a href="{0}">the instructions</a>.').format(
                 localize_user_manual_link(
         'https://manual.calibre-ebook.com/faq.html#how-do-i-move-my-calibre-data-from-one-computer-to-another')))
 
-    def location_text_changed(self, newtext):
-        self.completeChanged.emit()
+    def retranslateUi(self, widget):
+        LibraryUI.retranslateUi(self, widget)
+        self.set_move_lib_label_text()
 
     def init_languages(self):
         self.language.blockSignals(True)
         self.language.clear()
-        from calibre.utils.localization import (available_translations,
-            get_language, get_lang, get_lc_messages_path)
+        from calibre.utils.localization import (
+            available_translations, get_lang, get_language, get_lc_messages_path
+        )
         lang = get_lang()
         lang = get_lc_messages_path(lang) if lang else lang
         if lang is None or lang not in available_translations():
@@ -681,19 +704,19 @@ class LibraryPage(QWizardPage, LibraryUI):
                  if l != lang]
         if lang != 'en':
             items.append(('en', get_esc_lang('en')))
-        items.sort(cmp=lambda x, y: cmp(x[1], y[1]))
+        items.sort(key=lambda x: x[1])
         for item in items:
             self.language.addItem(item[1], (item[0]))
         self.language.blockSignals(False)
-        prefs['language'] = str(self.language.itemData(self.language.currentIndex()) or '')
+        prefs['language'] = unicode_type(self.language.itemData(self.language.currentIndex()) or '')
 
     def change_language(self, idx):
-        prefs['language'] = str(self.language.itemData(self.language.currentIndex()) or '')
+        prefs['language'] = unicode_type(self.language.itemData(self.language.currentIndex()) or '')
         from polyglot.builtins import builtins
         builtins.__dict__['_'] = lambda x: x
-        from calibre.utils.localization import set_translators
-        from calibre.gui2 import qt_app
         from calibre.ebooks.metadata.book.base import reset_field_metadata
+        from calibre.gui2 import qt_app
+        from calibre.utils.localization import set_translators
         set_translators()
         qt_app.load_translations()
         self.retranslate.emit()
@@ -711,6 +734,9 @@ class LibraryPage(QWizardPage, LibraryUI):
                 enable_plugin(name)
         except:
             pass
+        lp = self.location.text()
+        if lp == self.initial_library_location:
+            self.set_initial_library_location()
 
     def is_library_dir_suitable(self, x):
         from calibre.db.legacy import LibraryDatabase
@@ -720,7 +746,7 @@ class LibraryPage(QWizardPage, LibraryUI):
             return False
 
     def validatePage(self):
-        newloc = unicode(self.location.text())
+        newloc = unicode_type(self.location.text())
         if not self.is_library_dir_suitable(newloc):
             self.show_library_dir_error(newloc)
             return False
@@ -738,7 +764,7 @@ class LibraryPage(QWizardPage, LibraryUI):
                     show=True)
             if not os.path.exists(x):
                 try:
-                    os.makedirs(x)
+                    self.makedirs(x)
                 except:
                     return error_dialog(self, _('Bad location'),
                             _('Failed to create a folder at %s')%x,
@@ -750,22 +776,22 @@ class LibraryPage(QWizardPage, LibraryUI):
                 self.show_library_dir_error(x)
 
     def show_library_dir_error(self, x):
-        if not isinstance(x, unicode):
+        if not isinstance(x, unicode_type):
             try:
                 x = x.decode(filesystem_encoding)
             except:
-                x = unicode(repr(x))
+                x = unicode_type(repr(x))
         error_dialog(self, _('Bad location'),
             _('You must choose an empty folder for '
                 'the calibre library. %s is not empty.')%x, show=True)
 
-    def initializePage(self):
+    def set_initial_library_location(self):
         lp = prefs['library_path']
         self.default_library_name = None
         if not lp:
             fname = _('Calibre Library')
             try:
-                base = os.path.expanduser(u'~')
+                base = os.path.expanduser('~')
             except ValueError:
                 base = QDir.homePath().replace('/', os.sep)
 
@@ -773,14 +799,18 @@ class LibraryPage(QWizardPage, LibraryUI):
             self.default_library_name = lp
             if not os.path.exists(lp):
                 try:
-                    os.makedirs(lp)
+                    self.makedirs(lp)
                 except:
                     traceback.print_exc()
                     try:
-                        lp = os.path.expanduser(u'~')
+                        lp = os.path.expanduser('~')
                     except ValueError:
                         lp = QDir.homePath().replace('/', os.sep)
         self.location.setText(lp)
+        self.initial_library_location = lp
+
+    def initializePage(self):
+        self.set_initial_library_location()
         # Hide the library location settings if we are a portable install
         for x in ('location', 'button_change', 'libloc_label1',
                 'libloc_label2'):
@@ -788,7 +818,7 @@ class LibraryPage(QWizardPage, LibraryUI):
 
     def isComplete(self):
         try:
-            lp = unicode(self.location.text())
+            lp = unicode_type(self.location.text())
             ans = bool(lp) and os.path.exists(lp) and os.path.isdir(lp) and os.access(lp,
                     os.W_OK)
         except:
@@ -796,13 +826,17 @@ class LibraryPage(QWizardPage, LibraryUI):
         return ans
 
     def commit(self):
-        newloc = unicode(self.location.text())
+        newloc = unicode_type(self.location.text())
         try:
             dln = self.default_library_name
             if (dln and os.path.exists(dln) and not os.listdir(dln) and newloc != dln):
                 os.rmdir(dln)
         except Exception:
             pass
+        # dont leave behind any empty dirs
+        for x in self.made_dirs:
+            with suppress(OSError):
+                os.rmdir(x)
         if not os.path.exists(newloc):
             os.makedirs(newloc)
         prefs['library_path'] = newloc
@@ -870,7 +904,7 @@ class Wizard(QWizard):
         self.resize(600, 520)
 
     def set_button_texts(self):
-        for but, text in self.BUTTON_TEXTS.iteritems():
+        for but, text in iteritems(self.BUTTON_TEXTS):
             self.setButtonText(getattr(self, but+'Button'), _(text))
 
     def retranslate(self):
@@ -887,8 +921,8 @@ class Wizard(QWizard):
         QWizard.accept(self)
 
     def set_finish_text(self, *args):
-        bt = unicode("<em>" + self.buttonText(self.FinishButton) + "</em>").replace('&', '')
-        t = unicode(self.finish_page.finish_text.text())
+        bt = unicode_type("<em>" + self.buttonText(self.FinishButton) + "</em>").replace('&', '')
+        t = unicode_type(self.finish_page.finish_text.text())
         if '%s' in t:
             self.finish_page.finish_text.setText(t%bt)
 

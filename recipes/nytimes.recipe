@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
@@ -67,6 +67,13 @@ def classes(classes):
         'class': lambda x: x and frozenset(x.split()).intersection(q)})
 
 
+def new_tag(soup, name, attrs=()):
+    impl = getattr(soup, 'new_tag', None)
+    if impl is not None:
+        return impl(name, attrs=dict(attrs))
+    return Tag(soup, name, attrs=attrs or None)
+
+
 class NewYorkTimes(BasicNewsRecipe):
 
     if is_web_edition:
@@ -83,6 +90,7 @@ class NewYorkTimes(BasicNewsRecipe):
     compress_news_images = True
     compress_news_images_auto_size = 5
     remove_attributes = ['style']
+    conversion_options = {'flow_size': 0}
 
     remove_tags = [
         dict(attrs={'aria-label':'tools'.split()}),
@@ -116,7 +124,7 @@ class NewYorkTimes(BasicNewsRecipe):
             keep_only_tags = [
                 dict(id='story'),
             ]
-        body = Tag(soup, 'body')
+        body = new_tag(soup, 'body')
         for spec in keep_only_tags:
             for tag in soup.find('body').findAll(**spec):
                 body.insert(len(body.contents), tag)
@@ -137,6 +145,14 @@ class NewYorkTimes(BasicNewsRecipe):
         if h1 is not None:
             h1.extract()
             soup.find('body').contents.insert(0, h1)
+
+        # Find lazy loaded images
+        for div in soup.findAll(itemtype='http://schema.org/ImageObject', itemid=True):
+            if div.find('img') is None:
+                span = div.find('span')
+                if span is not None and self.tag_to_string(span).strip().lower() == 'image':
+                    span.name = 'img'
+                    span['src'] = div['itemid']
         return soup
 
     def read_todays_paper(self):
@@ -170,7 +186,7 @@ class NewYorkTimes(BasicNewsRecipe):
         soup = self.read_nyt_metadata()
         script = soup.findAll('script', text=lambda x: x and 'window.__preloadedData' in x)[0]
         script = type(u'')(script)
-        data = json.loads(script[script.find('{'):].strip().rstrip(';'))['initialState']
+        data = json.loads(script[script.find('{'):script.rfind(';')].strip().rstrip(';'))['initialState']
         containers, sections = {}, {}
         article_map = {}
         gc_pat = re.compile(r'groupings.(\d+).containers.(\d+)')
@@ -196,7 +212,7 @@ class NewYorkTimes(BasicNewsRecipe):
                     m = pat.search(key)
                     grouping, container, relation = map(int, m.groups())
                     asset = sdata['asset']
-                    if asset['typename'] == 'Article' and grouping == 0:
+                    if asset and asset['typename'] == 'Article' and grouping == 0:
                         if container not in sections:
                             sections[container] = []
                         sections[container].append(asset['id'].split(':', 1)[1])
@@ -259,14 +275,19 @@ class NewYorkTimes(BasicNewsRecipe):
             if article.get('description'):
                 self.log('\t\t', article['description'])
 
-        container = soup.find(itemtype='http://schema.org/CollectionPage')
-        container.find('header').extract()
-        div = container.find('div')
-        for section in div.findAll('section'):
-            for ol in section.findAll('ol'):
-                for article in self.parse_article_group(ol):
-                    log(article)
-                    yield article
+        cid = slug.split('/')[-1]
+        if cid == 'dining':
+            cid = 'food'
+        try:
+            container = soup.find(id='collection-{}'.format(cid)).find('section')
+        except AttributeError:
+            container = None
+        if container is None:
+            raise ValueError('Failed to find articles container for slug: {}'.format(slug))
+        for ol in container.findAll('ol'):
+            for article in self.parse_article_group(ol):
+                log(article)
+                yield article
 
     def parse_web_sections(self):
         self.read_nyt_metadata()
@@ -288,7 +309,7 @@ class NewYorkTimes(BasicNewsRecipe):
 
     def parse_index(self):
         # return [('All articles', [
-        #     {'title': 'XXXXX', 'url': 'https://www.nytimes.com/2018/05/31/theater/best-25-plays-how-we-made-the-list.html'},
+        #     {'title': 'XXXXX', 'url': 'https://www.nytimes.com/2020/11/27/world/americas/coronavirus-migrants-venezuela.html'},
         # ])]
         if is_web_edition:
             return self.parse_web_sections()

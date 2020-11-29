@@ -3,7 +3,6 @@ let g:project_tags_dirs = ['src/calibre']
 
 " Include directories for C++ modules
 let g:syntastic_cpp_include_dirs = [ 
-            \'/usr/include/python2.7',
             \'/usr/include/podofo', 
             \'/usr/include/qt/QtCore', 
             \'/usr/include/qt/QtGui', 
@@ -12,9 +11,7 @@ let g:syntastic_cpp_include_dirs = [
             \'/usr/include/fontconfig',
             \]
 let g:syntastic_c_include_dirs = g:syntastic_cpp_include_dirs
-let g:syntastic_python_flake8_exec = 'flake8-python2'
 let g:syntastic_python_flake8_args = '--filename='. shellescape('*.py,*.recipe')
-let g:python_version_2 = 1
 
 set wildignore+=resources/mathjax/*
 set wildignore+=resources/rapydscript/lib/*
@@ -35,11 +32,8 @@ fun! CalibreLog()
     nnoremap <silent> <buffer> n :call cursor(1+search('\V:::\$', 'n'), 0)<CR>
     nnoremap <silent> <buffer> yb v/#<CR>t<Space>y:nohl<CR>
     normal! gg2j
-    edit Changelog.yaml
+    edit Changelog.txt
     edit src/calibre/constants.py
 endfun
 
 nnoremap \log :call CalibreLog()<CR>
-
-python import init_calibre
-python import calibre

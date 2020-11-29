@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import operator
 import unittest
@@ -309,7 +308,7 @@ class Tester(SearchQueryParser):
              '(tag:txt or tag:pdf)': {33, 258, 354, 305, 242, 51, 55, 56, 154},
              '(tag:txt OR tag:pdf) and author:Tolstoy': {55, 56},
              'Tolstoy txt': {55, 56},
-             'Hamilton Amsterdam' : set([]),
+             'Hamilton Amsterdam' : set(),
              u'Beär' : {91},
              'dysfunc or tolstoy': {348, 55, 56},
              'tag:txt AND NOT tolstoy': {33, 258, 354, 305, 242, 154},
@@ -341,7 +340,7 @@ class Tester(SearchQueryParser):
             getter = lambda x: ''
 
         if not query:
-            return set([])
+            return set()
         query = query.lower()
         if candidates:
             return set(key for key, val in self.texts.items()

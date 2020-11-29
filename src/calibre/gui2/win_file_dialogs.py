@@ -1,14 +1,18 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-import sys, subprocess, struct, os
+
+import os
+import struct
+import subprocess
+import sys
 from threading import Thread
 from uuid import uuid4
+from contextlib import suppress
 
-from PyQt5.Qt import pyqtSignal, QEventLoop, Qt
+
+from polyglot.builtins import filter, string_or_bytes, unicode_type
 
 is64bit = sys.maxsize > (1 << 32)
 base = sys.extensions_location if hasattr(sys, 'new_app_layout') else os.path.dirname(sys.executable)
@@ -26,12 +30,8 @@ def is_ok():
 
 
 try:
-    from calibre.constants import filesystem_encoding
-    from calibre.utils.filenames import expanduser
     from calibre.utils.config import dynamic
 except ImportError:
-    filesystem_encoding = 'utf-8'
-    expanduser = os.path.expanduser
     dynamic = {}
 
 
@@ -47,36 +47,36 @@ def get_hwnd(widget=None):
 def serialize_hwnd(hwnd):
     if hwnd is None:
         return b''
-    return struct.pack(b'=B4s' + (b'Q' if is64bit else b'I'), 4, b'HWND', int(hwnd))
+    return struct.pack('=B4s' + ('Q' if is64bit else 'I'), 4, b'HWND', int(hwnd))
 
 
 def serialize_secret(secret):
-    return struct.pack(b'=B6s32s', 6, b'SECRET', secret)
+    return struct.pack('=B6s32s', 6, b'SECRET', secret)
 
 
 def serialize_binary(key, val):
     key = key.encode('ascii') if not isinstance(key, bytes) else key
-    return struct.pack(b'=B%ssB' % len(key), len(key), key, int(val))
+    return struct.pack('=B%ssB' % len(key), len(key), key, int(val))
 
 
 def serialize_string(key, val):
     key = key.encode('ascii') if not isinstance(key, bytes) else key
-    val = type('')(val).encode('utf-8')
+    val = unicode_type(val).encode('utf-8')
     if len(val) > 2**16 - 1:
         raise ValueError('%s is too long' % key)
-    return struct.pack(b'=B%dsH%ds' % (len(key), len(val)), len(key), key, len(val), val)
+    return struct.pack('=B%dsH%ds' % (len(key), len(val)), len(key), key, len(val), val)
 
 
 def serialize_file_types(file_types):
     key = b"FILE_TYPES"
-    buf = [struct.pack(b'=B%dsH' % len(key), len(key), key, len(file_types))]
+    buf = [struct.pack('=B%dsH' % len(key), len(key), key, len(file_types))]
 
     def add(x):
         x = x.encode('utf-8').replace(b'\0', b'')
-        buf.append(struct.pack(b'=H%ds' % len(x), len(x), x))
+        buf.append(struct.pack('=H%ds' % len(x), len(x), x))
     for name, extensions in file_types:
         add(name or _('Files'))
-        if isinstance(extensions, basestring):
+        if isinstance(extensions, string_or_bytes):
             extensions = extensions.split()
         add('; '.join('*.' + ext.lower() for ext in extensions))
     return b''.join(buf)
@@ -90,28 +90,21 @@ class Helper(Thread):
         self.callback = callback
         self.data = data
         self.daemon = True
-        self.rc = 0
+        self.rc = 1
         self.stdoutdata = self.stderrdata = b''
 
     def run(self):
-        self.stdoutdata, self.stderrdata = self.process.communicate(b''.join(self.data))
-        self.rc = self.process.wait()
-        self.callback()
-
-
-class Loop(QEventLoop):
-
-    dialog_closed = pyqtSignal()
-
-    def __init__(self):
-        QEventLoop.__init__(self)
-        self.dialog_closed.connect(self.exit, type=Qt.QueuedConnection)
+        try:
+            self.stdoutdata, self.stderrdata = self.process.communicate(b''.join(self.data))
+            self.rc = self.process.wait()
+        finally:
+            self.callback()
 
 
 def process_path(x):
     if isinstance(x, bytes):
-        x = x.decode(filesystem_encoding)
-    return os.path.abspath(expanduser(x))
+        x = os.fsdecode(x)
+    return os.path.abspath(os.path.expanduser(x))
 
 
 def select_initial_dir(q):
@@ -122,7 +115,7 @@ def select_initial_dir(q):
         if os.path.exists(c):
             return c
         q = c
-    return expanduser('~')
+    return os.path.expanduser('~')
 
 
 def run_file_dialog(
@@ -165,7 +158,7 @@ def run_file_dialog(
             data.append(serialize_string('FOLDER', initial_folder))
     if filename:
         if isinstance(filename, bytes):
-            filename = filename.decode(filesystem_encoding)
+            filename = os.fsdecode(filename)
         data.append(serialize_string('FILENAME', filename))
     if only_dirs:
         file_types = ()  # file types not allowed for dir only dialogs
@@ -178,8 +171,20 @@ def run_file_dialog(
     app_uid = app_uid or current_app_uid
     if app_uid:
         data.append(serialize_string('APP_UID', app_uid))
+
+    from PyQt5.Qt import QEventLoop, Qt, pyqtSignal
+
+    class Loop(QEventLoop):
+
+        dialog_closed = pyqtSignal()
+
+        def __init__(self):
+            QEventLoop.__init__(self)
+            self.dialog_closed.connect(self.exit, type=Qt.QueuedConnection)
+
     loop = Loop()
     server = PipeServer(pipename)
+    server.start()
     with sanitize_env_vars():
         h = Helper(subprocess.Popen(
             [HELPER], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE),
@@ -200,7 +205,7 @@ def run_file_dialog(
     from calibre import prints
     from calibre.constants import DEBUG
     if DEBUG:
-        prints('stdout+stderr from file dialog helper:', type('')([h.stdoutdata, h.stderrdata]))
+        prints('stdout+stderr from file dialog helper:', unicode_type([h.stdoutdata, h.stderrdata]))
 
     if h.rc != 0:
         raise Exception('File dialog failed (return code %s): %s' % (h.rc, get_errors()))
@@ -213,21 +218,34 @@ def run_file_dialog(
         return ()
     parts = list(filter(None, server.data.split(b'\0')))
     if DEBUG:
-        prints('piped data from file dialog helper:', type('')(parts))
+        prints('piped data from file dialog helper:', unicode_type(parts))
     if len(parts) < 2:
         return ()
     if parts[0] != secret:
         raise Exception('File dialog failed, incorrect secret received: ' + get_errors())
-    ans = tuple((os.path.abspath(x.decode('utf-8')) for x in parts[1:]))
+
+    from calibre_extensions.winutil import get_long_path_name
+
+    def fix_path(x):
+        u = os.path.abspath(x.decode('utf-8'))
+        with suppress(Exception):
+            try:
+                return get_long_path_name(u)
+            except FileNotFoundError:
+                base, fn = os.path.split(u)
+                return os.path.join(get_long_path_name(base), fn)
+        return u
+
+    ans = tuple(map(fix_path, parts[1:]))
     return ans
 
 
 def get_initial_folder(name, title, default_dir='~', no_save_dir=False):
     name = name or 'dialog_' + title
     if no_save_dir:
-        initial_folder = expanduser(default_dir)
+        initial_folder = os.path.expanduser(default_dir)
     else:
-        initial_folder = dynamic.get(name, expanduser(default_dir))
+        initial_folder = dynamic.get(name, os.path.expanduser(default_dir))
     if not initial_folder or not os.path.isdir(initial_folder):
         initial_folder = select_initial_dir(initial_folder)
     return name, initial_folder
@@ -293,55 +311,38 @@ def choose_save_file(window, name, title, filters=[], all_files=True, initial_pa
 class PipeServer(Thread):
 
     def __init__(self, pipename):
-        Thread.__init__(self, name='PipeServer')
-        self.daemon = True
-        import win32pipe, win32api, win32con
-        FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000
-        PIPE_REJECT_REMOTE_CLIENTS = 0x00000008
-        self.pipe_handle = win32pipe.CreateNamedPipe(
-            pipename, win32pipe.PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
-            win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-            1, 8192, 8192, 0, None)
-        win32api.SetHandleInformation(self.pipe_handle, win32con.HANDLE_FLAG_INHERIT, 0)
+        Thread.__init__(self, name='PipeServer', daemon=True)
+        from calibre_extensions import winutil
+        self.client_connected = False
+        self.pipe_handle = winutil.create_named_pipe(
+            pipename, winutil.PIPE_ACCESS_INBOUND | winutil.FILE_FLAG_FIRST_PIPE_INSTANCE,
+            winutil.PIPE_TYPE_BYTE | winutil.PIPE_READMODE_BYTE | winutil.PIPE_WAIT | winutil.PIPE_REJECT_REMOTE_CLIENTS,
+            1, 8192, 8192, 0)
+        winutil.set_handle_information(self.pipe_handle, winutil.HANDLE_FLAG_INHERIT, 0)
         self.err_msg = None
         self.data = b''
-        self.start()
 
     def run(self):
-        import win32pipe, win32file, winerror, win32api
-
-        def as_unicode(err):
-            try:
-                self.err_msg = type('')(err)
-            except Exception:
-                self.err_msg = repr(err)
+        from calibre_extensions import winutil
         try:
             try:
-                rc = win32pipe.ConnectNamedPipe(self.pipe_handle)
+                winutil.connect_named_pipe(self.pipe_handle)
             except Exception as err:
-                as_unicode(err)
+                self.err_msg = f'ConnectNamedPipe failed: {err}'
                 return
 
-            if rc != 0:
-                self.err_msg = 'Failed to connect to client over named pipe: 0x%x' % rc
-                return
-
+            self.client_connected = True
             while True:
                 try:
-                    hr, data = win32file.ReadFile(self.pipe_handle, 1024 * 50, None)
-                except Exception as err:
-                    if getattr(err, 'winerror', None) == winerror.ERROR_BROKEN_PIPE:
+                    data = winutil.read_file(self.pipe_handle, 64 * 1024)
+                except OSError as err:
+                    if err.winerror == winutil.ERROR_BROKEN_PIPE:
                         break  # pipe was closed at the other end
-                    as_unicode(err)
-                    break
-                if hr not in (winerror.ERROR_MORE_DATA, 0):
-                    self.err_msg = 'ReadFile on pipe failed with hr=%d' % hr
-                    break
+                    self.err_msg = f'ReadFile on pipe failed: {err}'
                 if not data:
                     break
                 self.data += data
         finally:
-            win32api.CloseHandle(self.pipe_handle)
             self.pipe_handle = None
 
 
@@ -351,6 +352,7 @@ def test(helper=HELPER):
     secret = os.urandom(32).replace(b'\0', b' ')
     data = serialize_string('PIPENAME', pipename) +  serialize_string('ECHO', echo) + serialize_secret(secret)
     server = PipeServer(pipename)
+    server.start()
     p = subprocess.Popen([helper], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate(data)
     if p.wait() != 0:
@@ -358,7 +360,7 @@ def test(helper=HELPER):
     if server.err_msg is not None:
         raise RuntimeError(server.err_msg)
     server.join(2)
-    parts = filter(None, server.data.split(b'\0'))
+    parts = list(filter(None, server.data.split(b'\0')))
     if parts[0] != secret:
         raise RuntimeError('Did not get back secret: %r != %r' % (secret, parts[0]))
     q = parts[1].decode('utf-8')
@@ -367,5 +369,7 @@ def test(helper=HELPER):
 
 
 if __name__ == '__main__':
-    choose_save_file(None, 'xxx', 'yyy')
-    test(sys.argv[-1])
+    from calibre.gui2 import Application
+    app = Application([])
+    print(choose_save_file(None, 'xxx', 'yyy'))
+    del app

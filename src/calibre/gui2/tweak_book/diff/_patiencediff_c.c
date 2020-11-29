@@ -1255,45 +1255,25 @@ static PyMethodDef _patiencediff_c_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-static struct PyModuleDef _patiencediff_c_module = {
-        /* m_base     */ PyModuleDef_HEAD_INIT,
-        /* m_name     */ "_patiencediff_c",
-        /* m_doc      */ "C implementation of PatienceSequenceMatcher.",
-        /* m_size     */ -1,
-        /* m_methods  */ _patiencediff_c_methods,
-        /* m_slots    */ 0,
-        /* m_traverse */ 0,
-        /* m_clear    */ 0,
-        /* m_free     */ 0,
-};
-
-CALIBRE_MODINIT_FUNC PyInit__patiencediff_c(void) {
+static int
+exec_module(PyObject *mod) {
     if (PyType_Ready(&PatienceSequenceMatcherType) < 0)
-        INITERROR;
-
-    PyObject *mod = PyModule_Create(&_patiencediff_c_module);
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC init_patiencediff_c(void) {
-    if (PyType_Ready(&PatienceSequenceMatcherType) < 0)
-        INITERROR;
-
-    PyObject *mod = Py_InitModule3("_patiencediff_c", _patiencediff_c_methods,
-        "C implementation of PatienceSequenceMatcher");
-#endif
-
-    if (mod == NULL) INITERROR;
-
+        return -1;
     Py_INCREF(&PatienceSequenceMatcherType);
     PyModule_AddObject(mod, "PatienceSequenceMatcher_c",
                        (PyObject *)&PatienceSequenceMatcherType);
+    return 0;
 
-
-#if PY_MAJOR_VERSION >= 3
-    return mod;
-#endif
 }
 
-/* vim: sw=4 et */
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "_patiencediff_c",
+    .m_doc      = "C implementation of PatienceSequenceMatcher.",
+    .m_methods  = _patiencediff_c_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit__patiencediff_c(void) { return PyModuleDef_Init(&module_def); }

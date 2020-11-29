@@ -1,5 +1,5 @@
-#!/usr/bin/env  python2
-from __future__ import print_function
+#!/usr/bin/env python
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -11,27 +11,16 @@ import sys, os, functools
 from calibre.utils.config import OptionParser
 from calibre.constants import iswindows
 from calibre import prints
-
-
-def get_debug_executable():
-    if hasattr(sys, 'frameworks_dir'):
-        base = os.path.dirname(sys.frameworks_dir)
-        if 'calibre-debug.app' not in base:
-            base = os.path.join(base, 'calibre-debug.app', 'Contents')
-        return os.path.join(base, 'MacOS', 'calibre-debug')
-    if getattr(sys, 'frozen', False):
-        return os.path.join(os.path.dirname(os.path.abspath(sys.executable)), 'calibre-debug' + ('.exe' if iswindows else ''))
-    return 'calibre-debug'
+from calibre.startup import get_debug_executable
+from polyglot.builtins import exec_path, raw_input, unicode_type, getcwd
 
 
 def run_calibre_debug(*args, **kw):
     import subprocess
     creationflags = 0
     if iswindows:
-        import win32process
-        creationflags = win32process.CREATE_NO_WINDOW
-    exe = get_debug_executable()
-    cmd = [exe] + list(args)
+        creationflags = subprocess.CREATE_NO_WINDOW
+    cmd = get_debug_executable() + list(args)
     kw['creationflags'] = creationflags
     return subprocess.Popen(cmd, **kw)
 
@@ -42,10 +31,10 @@ def option_parser():
 
 Various command line interfaces useful for debugging calibre. With no options,
 this command starts an embedded Python interpreter. You can also run the main
-calibre GUI, the calibre viewer and the calibre editor in debug mode.
+calibre GUI, the calibre E-book viewer and the calibre editor in debug mode.
 
 It also contains interfaces to various bits of calibre that do not have
-dedicated command line tools, such as font subsetting, the e-book diff tool and so
+dedicated command line tools, such as font subsetting, the E-book diff tool and so
 on.
 
 You can also use %prog to run standalone scripts. To do that use it like this:
@@ -118,6 +107,8 @@ Everything after the -- is passed to the script.
         'calibre-debug --diff file1 file2'))
     parser.add_option('--default-programs', default=None, choices=['register', 'unregister'],
                           help=_('(Un)register calibre from Windows Default Programs.') + ' --default-programs=(register|unregister)')
+    parser.add_option('--fix-multiprocessing', default=False, action='store_true',
+        help=_('For internal use'))
 
     return parser
 
@@ -164,8 +155,8 @@ def reinit_db(dbpath):
 def debug_device_driver():
     from calibre.devices import debug
     debug(ioreg_to_tmp=True, buf=sys.stdout)
-    if iswindows:
-        raw_input('Press Enter to continue...')
+    if iswindows:  # no2to3
+        raw_input('Press Enter to continue...')  # no2to3
 
 
 def add_simple_plugin(path_to_plugin):
@@ -173,7 +164,7 @@ def add_simple_plugin(path_to_plugin):
     tdir = tempfile.mkdtemp()
     open(os.path.join(tdir, 'custom_plugin.py'),
             'wb').write(open(path_to_plugin, 'rb').read())
-    odir = os.getcwdu()
+    odir = getcwd()
     os.chdir(tdir)
     zf = zipfile.ZipFile('plugin.zip', 'w')
     zf.write('custom_plugin.py')
@@ -189,32 +180,31 @@ def print_basic_debug_info(out=None):
         out = sys.stdout
     out = functools.partial(prints, file=out)
     import platform
-    from calibre.constants import (__appname__, get_version, isportable, isosx,
+    from contextlib import suppress
+    from calibre.constants import (__appname__, get_version, isportable, ismacos,
                                    isfrozen, is64bit)
     from calibre.utils.localization import set_translators
     out(__appname__, get_version(), 'Portable' if isportable else '',
         'embedded-python:', isfrozen, 'is64bit:', is64bit)
     out(platform.platform(), platform.system(), platform.architecture())
     if iswindows and not is64bit:
-        try:
-            import win32process
-            if win32process.IsWow64Process():
+        from calibre_extensions.winutil import is_wow64_process
+        with suppress(Exception):
+            if is_wow64_process():
                 out('32bit process running on 64bit windows')
-        except:
-            pass
     out(platform.system_alias(platform.system(), platform.release(),
             platform.version()))
     out('Python', platform.python_version())
     try:
         if iswindows:
             out('Windows:', platform.win32_ver())
-        elif isosx:
+        elif ismacos:
             out('OSX:', platform.mac_ver())
         else:
             out('Linux:', platform.linux_distribution())
     except:
         pass
-    out('Interface language:', type(u'')(set_translators.lang))
+    out('Interface language:', unicode_type(set_translators.lang))
     from calibre.customize.ui import has_external_plugins, initialized_plugins
     if has_external_plugins():
         names = ('{0} {1}'.format(p.name, p.version) for p in initialized_plugins() if getattr(p, 'plugin_path', None) is not None)
@@ -248,7 +238,7 @@ def run_script(path, args):
     g = globals()
     g['__name__'] = '__main__'
     g['__file__'] = ef
-    execfile(ef, g)
+    exec_path(ef, g)
 
 
 def inspect_mobi(path):
@@ -260,9 +250,13 @@ def inspect_mobi(path):
 
 def main(args=sys.argv):
     from calibre.constants import debug
-    debug()
 
     opts, args = option_parser().parse_args(args)
+    if opts.fix_multiprocessing:
+        sys.argv = [sys.argv[0], '--multiprocessing-fork']
+        exec(args[-1])
+        return
+    debug()
     if opts.gui:
         from calibre.gui_launch import calibre
         calibre(['calibre'] + args[1:])
@@ -270,7 +264,7 @@ def main(args=sys.argv):
         run_debug_gui(opts.gui_debug)
     elif opts.viewer:
         from calibre.gui_launch import ebook_viewer
-        ebook_viewer(['ebook-viewer', '--debug-javascript'] + args[1:])
+        ebook_viewer(['ebook-viewer'] + args[1:])
     elif opts.command:
         sys.argv = args
         exec(opts.command)
@@ -299,7 +293,8 @@ def main(args=sys.argv):
         f = explode if opts.explode_book else implode
         f(a1, a2)
     elif opts.test_build:
-        from calibre.test_build import test
+        from calibre.test_build import test, test_multiprocessing
+        test_multiprocessing()
         test()
     elif opts.shutdown_running_calibre:
         from calibre.gui2.main import shutdown_other
@@ -346,7 +341,7 @@ def main(args=sys.argv):
             elif ext in {'mobi', 'azw', 'azw3'}:
                 inspect_mobi(path)
             else:
-                print ('Cannot dump unknown filetype: %s' % path)
+                print('Cannot dump unknown filetype: %s' % path)
     elif len(args) >= 2 and os.path.exists(os.path.join(args[1], '__main__.py')):
         sys.path.insert(0, args[1])
         run_script(os.path.join(args[1], '__main__.py'), args[2:])

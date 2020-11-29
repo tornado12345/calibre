@@ -53,27 +53,6 @@
 
 #define NUKE(x) Py_XDECREF(x); x = NULL;
 
-/* This function only works on 10.5 and later. Pass in a unicode object as path */
-static PyObject* usbobserver_send2trash(PyObject *self, PyObject *args)
-{
-    UInt8 *utf8_chars;
-    FSRef fp;
-    OSStatus op_result;
-
-    if (!PyArg_ParseTuple(args, "es", "utf-8", &utf8_chars)) {
-        return NULL;
-    }
-
-    FSPathMakeRefWithOptions(utf8_chars, kFSPathMakeRefDoNotFollowLeafSymlink, &fp, NULL);
-    op_result = FSMoveObjectToTrashSync(&fp, NULL, kFSFileOperationDefaultOptions);
-    PyMem_Free(utf8_chars);
-    if (op_result != noErr) {
-        PyErr_SetString(PyExc_OSError, GetMacOSStatusCommentString(op_result));
-        return NULL;
-    }
-    Py_RETURN_NONE;
-}
-
 
 static PyObject*
 usbobserver_get_iokit_string_property(io_service_t dev, CFStringRef prop) {
@@ -301,7 +280,7 @@ usbobserver_get_mounted_filesystems(PyObject *self, PyObject *args) {
 	if (ans == NULL) { goto end; }
 
     for (i = 0 ; i < num; i++) {
-        val = PyBytes_FromString(buf[i].f_mntonname);
+        val = PyUnicode_FromString(buf[i].f_mntonname);
 		if (!val) { NUKE(ans); goto end; }
 		if (PyDict_SetItemString(ans, buf[i].f_mntfromname, val) != 0) { NUKE(ans); NUKE(val); goto end; }
         NUKE(val);
@@ -457,6 +436,8 @@ end:
     return ans;
 }
 
+static char usbobserver_doc[] = "USB interface glue for OSX.";
+
 static PyMethodDef usbobserver_methods[] = {
     {"get_usb_devices", usbobserver_get_usb_devices, METH_VARARGS,
      "Get list of connected USB devices. Returns a list of tuples. Each tuple is of the form (vendor_id, product_id, bcd, manufacturer, product, serial number)."
@@ -466,9 +447,6 @@ static PyMethodDef usbobserver_methods[] = {
     },
     {"get_mounted_filesystems", usbobserver_get_mounted_filesystems, METH_VARARGS,
      "Get mapping of mounted filesystems. Mapping is from BSD name to mount point."
-    },
-    {"send2trash", usbobserver_send2trash, METH_VARARGS,
-     "send2trash(unicode object) -> Send specified file/dir to trash"
     },
     {"user_locale", usbobserver_user_locale, METH_VARARGS,
      "user_locale() -> The name of the current user's locale or None if an error occurred"
@@ -482,8 +460,17 @@ static PyMethodDef usbobserver_methods[] = {
 
     {NULL, NULL, 0, NULL}
 };
+static int
+exec_module(PyObject *module) { return 0; }
 
-CALIBRE_MODINIT_FUNC
-initusbobserver(void) {
-    (void) Py_InitModule("usbobserver", usbobserver_methods);
-}
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "usbobserver",
+    .m_doc      = usbobserver_doc,
+    .m_methods  = usbobserver_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_usbobserver(void) { return PyModuleDef_Init(&module_def); }

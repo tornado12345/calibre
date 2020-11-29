@@ -161,6 +161,8 @@ wpd_device_info(PyObject *self, PyObject *args) {
     return ans;
 } // }}}
 
+static char wpd_doc[] = "Interface to the WPD windows service.";
+
 static PyMethodDef wpd_methods[] = {
     {"init", wpd_init, METH_VARARGS,
         "init(name, major_version, minor_version, revision)\n\n Initializes this module. Call this method *only* in the thread in which you intend to use this module. Also remember to call uninit before the thread exits."
@@ -181,33 +183,36 @@ static PyMethodDef wpd_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-
-CALIBRE_MODINIT_FUNC
-initwpd(void) {
-    PyObject *m;
-
+static int
+exec_module(PyObject *m) {
     wpd::DeviceType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&wpd::DeviceType) < 0)
-        return;
-
-    m = Py_InitModule3("wpd", wpd_methods, "Interface to the WPD windows service.");
-    if (m == NULL) return;
+    if (PyType_Ready(&wpd::DeviceType) < 0) return -1;
 
     WPDError = PyErr_NewException("wpd.WPDError", NULL, NULL);
-    if (WPDError == NULL) return;
+    if (WPDError == NULL) return -1;
     PyModule_AddObject(m, "WPDError", WPDError);
 
     NoWPD = PyErr_NewException("wpd.NoWPD", NULL, NULL);
-    if (NoWPD == NULL) return;
+    if (NoWPD == NULL) return -1;
     PyModule_AddObject(m, "NoWPD", NoWPD);
 
     WPDFileBusy = PyErr_NewException("wpd.WPDFileBusy", NULL, NULL);
-    if (WPDFileBusy == NULL) return;
+    if (WPDFileBusy == NULL) return -1;
     PyModule_AddObject(m, "WPDFileBusy", WPDFileBusy);
 
     Py_INCREF(&DeviceType);
     PyModule_AddObject(m, "Device", (PyObject *)&DeviceType);
-
+	return 0;
 }
 
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, (void*)exec_module}, {0, NULL} };
 
+static struct PyModuleDef module_def = {PyModuleDef_HEAD_INIT};
+
+CALIBRE_MODINIT_FUNC PyInit_wpd(void) {
+	module_def.m_name = "wpd";
+	module_def.m_slots = slots;
+	module_def.m_doc = wpd_doc;
+	module_def.m_methods = wpd_methods;
+	return PyModuleDef_Init(&module_def);
+}

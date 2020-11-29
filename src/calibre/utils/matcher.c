@@ -164,7 +164,7 @@ static void convert_positions(int32_t *positions, int32_t *final_positions, UCha
     for (i = 0; i < byte_len && final_positions < end; i++) {
         if (positions[i] == -1) continue;
 #if PY_VERSION_HEX >= 0x03030000
-        *final_positions = positions[i];
+        *final_positions = u_countChar32(string, positions[i]);
 #else
 #ifdef Py_UNICODE_WIDE
         *final_positions = u_countChar32(string, positions[i]);
@@ -501,41 +501,24 @@ static PyTypeObject MatcherType = { // {{{
     /* tp_new            */ PyType_GenericNew,
 }; // }}}
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-static struct PyModuleDef matcher_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "matcher",
-    /* m_doc      */ "Find subsequence matches.",
-    /* m_size     */ -1,
-    /* m_methods  */ 0,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
-};
-
-CALIBRE_MODINIT_FUNC PyInit_matcher(void) {
-    PyObject *mod = PyModule_Create(&matcher_module);
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC initmatcher(void) {
-    PyObject *mod = Py_InitModule3("matcher", NULL, "Find subsequence matches");
-#endif
-
-    if (mod == NULL) INITERROR;
-
-    if (PyType_Ready(&MatcherType) < 0) {
-        INITERROR;
-    }
-
+static int
+exec_module(PyObject *mod) {
+    if (PyType_Ready(&MatcherType) < 0) return -1;
     Py_INCREF(&MatcherType);
     if(PyModule_AddObject(mod, "Matcher", (PyObject *)&MatcherType) < 0) {
         Py_DECREF(&MatcherType);
-        INITERROR;
+        return -1;
     }
-
-#if PY_MAJOR_VERSION >= 3
-    return mod;
-#endif
+	return 0;
 }
+
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "matcher",
+    .m_doc      = "Find subsequence matches.",
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_matcher(void) { return PyModuleDef_Init(&module_def); }

@@ -1,8 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
-
-from __future__ import print_function, unicode_literals
 
 import errno
 import os
@@ -11,30 +9,26 @@ import shutil
 import subprocess
 import sys
 
-from calibre import CurrentDir, replace_entities, prints
-from calibre.constants import (
-    filesystem_encoding, isbsd, islinux, isosx, ispy3, iswindows
-)
+from calibre import CurrentDir, prints, xml_replace_entities
+from calibre.constants import isbsd, islinux, ismacos, iswindows
 from calibre.ebooks import ConversionError, DRMError
 from calibre.ebooks.chardet import xml_to_unicode
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.cleantext import clean_xml_chars
 from calibre.utils.ipc import eintr_retry_call
 
-
 PDFTOHTML = 'pdftohtml'
 
 
 def popen(cmd, **kw):
-    if not ispy3:
-        cmd = [x.encode(filesystem_encoding) if not isinstance(x, bytes) else x for x in cmd]
     if iswindows:
-        kw['creationflags'] = 0x08
+        kw['creationflags'] = subprocess.DETACHED_PROCESS
     return subprocess.Popen(cmd, **kw)
 
 
-if isosx and hasattr(sys, 'frameworks_dir'):
-    PDFTOHTML = os.path.join(getattr(sys, 'frameworks_dir'), PDFTOHTML)
+if ismacos and hasattr(sys, 'frameworks_dir'):
+    base = os.path.join(os.path.dirname(sys.frameworks_dir), 'utils.app', 'Contents', 'MacOS')
+    PDFTOHTML = os.path.join(base, PDFTOHTML)
 if iswindows and hasattr(sys, 'frozen'):
     base = sys.extensions_location if hasattr(sys, 'new_app_layout') else os.path.dirname(sys.executable)
     PDFTOHTML = os.path.join(base, 'pdftohtml.exe')
@@ -95,7 +89,7 @@ def pdftohtml(output_dir, pdf_path, no_images, as_xml=False):
 
         if not as_xml:
             with lopen(index, 'r+b') as i:
-                raw = i.read().decode('utf-8')
+                raw = i.read().decode('utf-8', 'replace')
                 raw = flip_images(raw)
                 raw = raw.replace('<head', '<!-- created by calibre\'s pdftohtml -->\n  <head', 1)
                 i.seek(0)
@@ -106,7 +100,7 @@ def pdftohtml(output_dir, pdf_path, no_images, as_xml=False):
                 raw = re.sub(r'<a\s+name=(\d+)', r'<a id="\1"', raw, flags=re.I)
                 raw = re.sub(r'<a id="(\d+)"', r'<a id="p\1"', raw, flags=re.I)
                 raw = re.sub(r'<a href="index.html#(\d+)"', r'<a href="#p\1"', raw, flags=re.I)
-                raw = replace_entities(raw)
+                raw = xml_replace_entities(raw)
                 raw = raw.replace('\u00a0', ' ')
 
                 i.write(raw.encode('utf-8'))
@@ -128,9 +122,9 @@ def pdftohtml(output_dir, pdf_path, no_images, as_xml=False):
 
 def parse_outline(raw, output_dir):
     from lxml import etree
-    from calibre.ebooks.oeb.parse_utils import RECOVER_PARSER
+    from calibre.utils.xml_parse import safe_xml_fromstring
     raw = clean_xml_chars(xml_to_unicode(raw, strip_encoding_pats=True, assume_utf8=True)[0])
-    outline = etree.fromstring(raw, parser=RECOVER_PARSER).xpath('(//outline)[1]')
+    outline = safe_xml_fromstring(raw).xpath('(//outline)[1]')
     if outline:
         from calibre.ebooks.oeb.polish.toc import TOC, create_ncx
         outline = outline[0]

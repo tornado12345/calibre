@@ -1,19 +1,20 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import re, threading
+from functools import total_ordering
 
 from calibre import browser, random_user_agent
 from calibre.customize import Plugin
 from calibre.ebooks.metadata import check_isbn
 from calibre.ebooks.metadata.author_mapper import cap_author_token
 from calibre.utils.localization import canonicalize_lang, get_lang
+from polyglot.builtins import iteritems, cmp
 
 
 def create_log(ostream=None):
@@ -40,6 +41,7 @@ def cleanup_title(s):
     return s.strip()
 
 
+@total_ordering
 class InternalMetadataCompareKeyGen(object):
 
     '''
@@ -65,7 +67,7 @@ class InternalMetadataCompareKeyGen(object):
     def __init__(self, mi, source_plugin, title, authors, identifiers):
         same_identifier = 2
         idents = mi.get_identifiers()
-        for k, v in identifiers.iteritems():
+        for k, v in iteritems(identifiers):
             if idents.get(k) == v:
                 same_identifier = 1
                 break
@@ -85,21 +87,38 @@ class InternalMetadataCompareKeyGen(object):
                 source_plugin.get_cached_cover_url(mi.identifiers) is None) else 1
 
         self.base = (same_identifier, has_cover, all_fields, language, exact_title)
-        self.comments_len = len(mi.comments.strip() if mi.comments else '')
-        self.extra = (getattr(mi, 'source_relevance', 0), )
+        self.comments_len = len((mi.comments or '').strip())
+        self.extra = getattr(mi, 'source_relevance', 0)
 
-    def __cmp__(self, other):
-        result = cmp(self.base, other.base)
-        if result == 0:
-            # Now prefer results with the longer comments, within 10%
-            cx, cy = self.comments_len, other.comments_len
+    def compare_to_other(self, other):
+        a = cmp(self.base, other.base)
+        if a != 0:
+            return a
+        cx, cy = self.comments_len, other.comments_len
+        if cx and cy:
             t = (cx + cy) / 20
             delta = cy - cx
             if abs(delta) > t:
-                result = delta
-            else:
-                result = cmp(self.extra, other.extra)
-        return result
+                return -1 if delta < 0 else 1
+        return cmp(self.extra, other.extra)
+
+    def __eq__(self, other):
+        return self.compare_to_other(other) == 0
+
+    def __ne__(self, other):
+        return self.compare_to_other(other) != 0
+
+    def __lt__(self, other):
+        return self.compare_to_other(other) < 0
+
+    def __le__(self, other):
+        return self.compare_to_other(other) <= 0
+
+    def __gt__(self, other):
+        return self.compare_to_other(other) > 0
+
+    def __ge__(self, other):
+        return self.compare_to_other(other) >= 0
 
 # }}}
 
@@ -280,7 +299,7 @@ class Source(Plugin):
 
     def get_related_isbns(self, id_):
         with self.cache_lock:
-            for isbn, q in self._isbn_to_identifier_cache.iteritems():
+            for isbn, q in iteritems(self._isbn_to_identifier_cache):
                 if q == id_:
                     yield isbn
 
@@ -324,8 +343,8 @@ class Source(Plugin):
 
         if authors:
             # Leave ' in there for Irish names
-            remove_pat = re.compile(r'[!@#$%^&*(){}`~"\s\[\]/]')
-            replace_pat = re.compile(r'[-+.:;,]')
+            remove_pat = re.compile(r'[!@#$%^&*()（）「」{}`~"\s\[\]/]')
+            replace_pat = re.compile(r'[-+.:;,，。；：]')
             if only_first_author:
                 authors = authors[:1]
             for au in authors:
@@ -365,7 +384,7 @@ class Source(Plugin):
                 # Remove hyphens only if they have whitespace before them
                 (r'(\s-)', ' '),
                 # Replace other special chars with a space
-                (r'''[:,;!@$%^&*(){}.`~"\s\[\]/]''', ' '),
+                (r'''[:,;!@$%^&*(){}.`~"\s\[\]/]《》「」“”''', ' '),
             ]]
 
             for pat, repl in title_patterns:
@@ -526,7 +545,7 @@ class Source(Plugin):
     def identify(self, log, result_queue, abort, title=None, authors=None,
             identifiers={}, timeout=30):
         '''
-        Identify a book by its title/author/isbn/etc.
+        Identify a book by its Title/Author/ISBN/etc.
 
         If identifiers(s) are specified and no match is found and this metadata
         source does not store all related identifiers (for example, all ISBNs
@@ -544,7 +563,7 @@ class Source(Plugin):
         This integer will be used by :meth:`compare_identify_results`. If the
         order is unimportant, set it to zero for every result.
 
-        Make sure that any cover/isbn mapping information is cached before the
+        Make sure that any cover/ISBN mapping information is cached before the
         Metadata object is put into result_queue.
 
         :param log: A log object, use it to output debugging information/errors

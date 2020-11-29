@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -9,11 +8,11 @@ __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 import pdb, socket, inspect, sys, select, os, atexit, time
 
 from calibre import prints
-from calibre.utils.ipc import eintr_retry_call
 from calibre.constants import cache_dir
+from polyglot.builtins import range, raw_input as rinput
 
-PROMPT = b'(debug) '
-QUESTION = b'\x00\x01\x02'
+PROMPT = '(debug) '
+QUESTION = '\x00\x01\x02'
 
 
 class RemotePdb(pdb.Pdb):
@@ -59,7 +58,7 @@ class RemotePdb(pdb.Pdb):
     def do_clear(self, arg):
         if not arg:
             ans = self.ask_question("Clear all breaks? [y/n]: ")
-            if ans.strip().lower() in {b'y', b'yes'}:
+            if ans.strip().lower() in {'y', 'yes'}:
                 self.clear_all_breaks()
                 self.prints('All breaks cleared')
             return
@@ -70,7 +69,7 @@ class RemotePdb(pdb.Pdb):
         if not self.breaks:
             ans = self.ask_question(
                 'There are no breakpoints set. Continuing will terminate this debug session. Are you sure? [y/n]: ')
-            if ans.strip().lower() in {b'y', b'yes'}:
+            if ans.strip().lower() in {'y', 'yes'}:
                 return self.end_session()
             return
         return pdb.Pdb.do_continue(self, arg)
@@ -96,7 +95,7 @@ def set_trace(port=4444, skip=None):
 def cli(port=4444):
     prints('Connecting to remote debugger on port %d...' % port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    for i in xrange(20):
+    for i in range(20):
         try:
             sock.connect(('127.0.0.1', port))
             break
@@ -120,12 +119,13 @@ def cli(port=4444):
     p = pdb.Pdb()
     readline.set_completer(p.complete)
     readline.parse_and_bind("tab: complete")
+    sockf = sock.makefile('rw')
 
     try:
         while True:
-            recvd = b''
+            recvd = ''
             while not recvd.endswith(PROMPT) or select.select([sock], [], [], 0) == ([sock], [], []):
-                buf = eintr_retry_call(sock.recv, 16 * 1024)
+                buf = sockf.read()
                 if not buf:
                     return
                 recvd += buf
@@ -133,19 +133,22 @@ def cli(port=4444):
             if recvd.startswith(QUESTION):
                 recvd = recvd[len(QUESTION):]
                 sys.stdout.write(recvd)
-                raw = sys.stdin.readline() or b'n'
+                raw = sys.stdin.readline() or 'n'
             else:
                 sys.stdout.write(recvd)
-                raw = b''
+                raw = ''
                 try:
-                    raw = raw_input(PROMPT) + b'\n'
+                    raw = rinput(PROMPT.decode('utf-8'))
                 except (EOFError, KeyboardInterrupt):
                     pass
+                else:
+                    raw += '\n'
                 if not raw:
-                    raw = b'quit\n'
-            eintr_retry_call(sock.send, raw)
+                    raw = 'quit\n'
+            sockf.write(raw)
     except KeyboardInterrupt:
         pass
+
 
 if __name__ == '__main__':
     cli()

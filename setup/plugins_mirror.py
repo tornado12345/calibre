@@ -1,8 +1,10 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2013, Kovid Goyal <kovid at kovidgoyal.net>
-# Imports {{{
 from __future__ import absolute_import, division, print_function, unicode_literals
+
+# Imports {{{
+
 
 import ast
 import atexit
@@ -10,7 +12,6 @@ import bz2
 import errno
 import glob
 import gzip
-import HTMLParser
 import io
 import json
 import os
@@ -22,8 +23,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib2
-import urlparse
 import zipfile
 import zlib
 from collections import namedtuple
@@ -33,6 +32,24 @@ from email.utils import parsedate
 from functools import partial
 from multiprocessing.pool import ThreadPool
 from xml.sax.saxutils import escape, quoteattr
+
+try:
+    from html import unescape as u
+except ImportError:
+    from HTMLParser import HTMLParser
+    u = HTMLParser().unescape
+
+try:
+    from urllib.parse import parse_qs, urlparse
+except ImportError:
+    from urlparse import parse_qs, urlparse
+
+
+try:
+    from urllib.error import URLError
+    from urllib.request import urlopen, Request, build_opener
+except Exception:
+    from urllib2 import urlopen, Request, build_opener, URLError
 # }}}
 
 USER_AGENT = 'calibre mirror'
@@ -44,15 +61,13 @@ INDEX = MR_URL + 'showpost.php?p=1362767&postcount=1'
 # INDEX = 'file:///t/raw.html'
 
 IndexEntry = namedtuple('IndexEntry', 'name url donate history uninstall deprecated thread_id')
-u = HTMLParser.HTMLParser().unescape
-
 socket.setdefaulttimeout(30)
 
 
 def read(url, get_info=False):  # {{{
     if url.startswith("file://"):
-        return urllib2.urlopen(url).read()
-    opener = urllib2.build_opener()
+        return urlopen(url).read()
+    opener = build_opener()
     opener.addheaders = [
         ('User-Agent', USER_AGENT),
         ('Accept-Encoding', 'gzip,deflate'),
@@ -62,7 +77,7 @@ def read(url, get_info=False):  # {{{
         try:
             res = opener.open(url)
             break
-        except urllib2.URLError as e:
+        except URLError as e:
             if not isinstance(e.reason, socket.timeout) or i == 9:
                 raise
             time.sleep(random.randint(10, 45))
@@ -82,7 +97,7 @@ def read(url, get_info=False):  # {{{
 
 
 def url_to_plugin_id(url, deprecated):
-    query = urlparse.parse_qs(urlparse.urlparse(url).query)
+    query = parse_qs(urlparse(url).query)
     ans = (query['t'] if 't' in query else query['p'])[0]
     if deprecated:
         ans += '-deprecated'
@@ -149,11 +164,13 @@ def convert_node(fields, x, names={}, import_data=None):
         return x.s.decode('utf-8') if isinstance(x.s, bytes) else x.s
     elif name == 'Num':
         return x.n
+    elif name == 'Constant':
+        return x.value
     elif name in {'Set', 'List', 'Tuple'}:
         func = {'Set':set, 'List':list, 'Tuple':tuple}[name]
-        return func(map(conv, x.elts))
+        return func(list(map(conv, x.elts)))
     elif name == 'Dict':
-        keys, values = map(conv, x.keys), map(conv, x.values)
+        keys, values = list(map(conv, x.keys)), list(map(conv, x.values))
         return dict(zip(keys, values))
     elif name == 'Call':
         if len(x.args) != 1 and len(x.keywords) != 0:
@@ -168,27 +185,43 @@ def convert_node(fields, x, names={}, import_data=None):
     elif name == 'BinOp':
         if x.right.__class__.__name__ == 'Str':
             return x.right.s.decode('utf-8') if isinstance(x.right.s, bytes) else x.right.s
+        if x.right.__class__.__name__ == 'Constant' and isinstance(x.right.value, str):
+            return x.right.value
+    elif name == 'Attribute':
+        return conv(getattr(conv(x.value), x.attr))
     raise TypeError('Unknown datatype %s for fields: %s' % (x, fields))
 
 
 Alias = namedtuple('Alias', 'name asname')
 
 
+class Module(object):
+    pass
+
+
 def get_import_data(name, mod, zf, names):
     mod = mod.split('.')
     if mod[0] == 'calibre_plugins':
         mod = mod[2:]
+    is_module_import = not mod
+    if is_module_import:
+        mod = [name]
     mod = '/'.join(mod) + '.py'
     if mod in names:
         raw = zf.open(names[mod]).read()
         module = ast.parse(raw, filename='__init__.py')
-        top_level_assigments = filter(lambda x:x.__class__.__name__ == 'Assign', ast.iter_child_nodes(module))
+        top_level_assigments = [x for x in ast.iter_child_nodes(module) if x.__class__.__name__ == 'Assign']
+        module = Module()
         for node in top_level_assigments:
             targets = {getattr(t, 'id', None) for t in node.targets}
             targets.discard(None)
             for x in targets:
-                if x == name:
+                if is_module_import:
+                    setattr(module, x, node.value)
+                elif x == name:
                     return convert_node({x}, node.value)
+        if is_module_import:
+            return module
         raise ValueError('Failed to find name: %r in module: %r' % (name, mod))
     else:
         raise ValueError('Failed to find module: %r' % mod)
@@ -196,11 +229,16 @@ def get_import_data(name, mod, zf, names):
 
 def parse_metadata(raw, namelist, zf):
     module = ast.parse(raw, filename='__init__.py')
-    top_level_imports = filter(lambda x:x.__class__.__name__ == 'ImportFrom', ast.iter_child_nodes(module))
-    top_level_classes = tuple(filter(lambda x:x.__class__.__name__ == 'ClassDef', ast.iter_child_nodes(module)))
-    top_level_assigments = filter(lambda x:x.__class__.__name__ == 'Assign', ast.iter_child_nodes(module))
-    defaults = {'name':'', 'description':'', 'supported_platforms':['windows', 'osx', 'linux'],
-                'version':(1, 0, 0), 'author':'Unknown', 'minimum_calibre_version':(0, 9, 42)}
+    top_level_imports = [x for x in ast.iter_child_nodes(module) if x.__class__.__name__ == 'ImportFrom']
+    top_level_classes = tuple(x for x in ast.iter_child_nodes(module) if x.__class__.__name__ == 'ClassDef')
+    top_level_assigments = [x for x in ast.iter_child_nodes(module) if x.__class__.__name__ == 'Assign']
+    defaults = {
+        'name':'', 'description':'',
+        'supported_platforms':['windows', 'osx', 'linux'],
+        'version':(1, 0, 0),
+        'author':'Unknown',
+        'minimum_calibre_version':(0, 9, 42)
+    }
     field_names = set(defaults)
     imported_names = {}
 
@@ -221,7 +259,7 @@ def parse_metadata(raw, namelist, zf):
                 plugin_import_found |= inames
             else:
                 all_imports.append((mod, [n.name for n in names]))
-                imported_names[n.asname or n.name] = mod
+                imported_names[names[-1].asname or names[-1].name] = mod
     if not plugin_import_found:
         return all_imports
 
@@ -240,7 +278,7 @@ def parse_metadata(raw, namelist, zf):
                 names[x] = val
 
     def parse_class(node):
-        class_assigments = filter(lambda x:x.__class__.__name__ == 'Assign', ast.iter_child_nodes(node))
+        class_assigments = [x for x in ast.iter_child_nodes(node) if x.__class__.__name__ == 'Assign']
         found = {}
         for node in class_assigments:
             targets = {getattr(t, 'id', None) for t in node.targets}
@@ -270,19 +308,7 @@ def parse_metadata(raw, namelist, zf):
     raise ValueError('Could not find plugin class')
 
 
-def check_qt5_compatibility(zf, names):
-    uses_qt = False
-    for name in names:
-        if name.endswith('.py'):
-            raw = zf.read(name)
-            has_qt4 = (b'PyQt' + b'4') in raw
-            uses_qt = uses_qt or has_qt4
-            if uses_qt and has_qt4 and b'PyQt5' not in raw:
-                return False
-    return True
-
-
-def get_plugin_info(raw, check_for_qt5=False):
+def get_plugin_info(raw):
     metadata = None
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
         names = {x.decode('utf-8') if isinstance(x, bytes) else x : x for x in zf.namelist()}
@@ -292,7 +318,7 @@ def get_plugin_info(raw, check_for_qt5=False):
             metadata = names[inits[0]]
         else:
             # Legacy plugin
-            for name, val in names.iteritems():
+            for name, val in names.items():
                 if name.endswith('plugin.py'):
                     metadata = val
                     break
@@ -301,8 +327,6 @@ def get_plugin_info(raw, check_for_qt5=False):
         raw = zf.open(metadata).read()
         ans = parse_metadata(raw, names, zf)
         if isinstance(ans, dict):
-            if check_for_qt5:
-                ans['qt5'] = check_qt5_compatibility(zf, names)
             return ans
         # The plugin is importing its base class from somewhere else, le sigh
         for mod, _ in ans:
@@ -314,8 +338,6 @@ def get_plugin_info(raw, check_for_qt5=False):
                 raw = zf.open(names[mod]).read()
                 ans = parse_metadata(raw, names, zf)
                 if isinstance(ans, dict):
-                    if check_for_qt5:
-                        ans['qt5'] = check_qt5_compatibility(zf, names)
                     return ans
 
     raise ValueError('Failed to find plugin class')
@@ -331,8 +353,8 @@ def update_plugin_from_entry(plugin, entry):
 
 
 def fetch_plugin(old_index, entry):
-    lm_map = {plugin['thread_id']:plugin for plugin in old_index.itervalues()}
-    raw = read(entry.url)
+    lm_map = {plugin['thread_id']:plugin for plugin in old_index.values()}
+    raw = read(entry.url).decode('utf-8', 'replace')
     url, name = parse_plugin_zip_url(raw)
     if url is None:
         raise ValueError('Failed to find zip file URL for entry: %s' % repr(entry))
@@ -341,9 +363,9 @@ def fetch_plugin(old_index, entry):
     if plugin is not None:
         # Previously downloaded plugin
         lm = datetime(*tuple(map(int, re.split(r'\D', plugin['last_modified'])))[:6])
-        request = urllib2.Request(url)
+        request = Request(url)
         request.get_method = lambda : 'HEAD'
-        with closing(urllib2.urlopen(request)) as response:
+        with closing(urlopen(request)) as response:
             info = response.info()
         slm = datetime(*parsedate(info.get('Last-Modified'))[:6])
         if lm >= slm:
@@ -373,14 +395,14 @@ def parallel_fetch(old_index, entry):
 
 
 def log(*args, **kwargs):
-    print (*args, **kwargs)
+    print(*args, **kwargs)
     with open('log', 'a') as f:
         kwargs['file'] = f
-        print (*args, **kwargs)
+        print(*args, **kwargs)
 
 
 def atomic_write(raw, name):
-    with tempfile.NamedTemporaryFile(dir=os.getcwdu(), delete=False) as f:
+    with tempfile.NamedTemporaryFile(dir=os.getcwd(), delete=False) as f:
         f.write(raw)
         os.fchmod(f.fileno(), stat.S_IREAD|stat.S_IWRITE|stat.S_IRGRP|stat.S_IROTH)
         os.rename(f.name, name)
@@ -403,15 +425,15 @@ def fetch_plugins(old_index):
             log('Failed to get plugin', entry.name, 'at', datetime.utcnow().isoformat(), 'with error:')
             log(plugin)
     # Move staged files
-    for plugin in ans.itervalues():
+    for plugin in ans.values():
         if plugin['file'].startswith('staging_'):
             src = plugin['file']
             plugin['file'] = src.partition('_')[-1]
             os.rename(src, plugin['file'])
-    raw = bz2.compress(json.dumps(ans, sort_keys=True, indent=4, separators=(',', ': ')))
+    raw = bz2.compress(json.dumps(ans, sort_keys=True, indent=4, separators=(',', ': ')).encode('utf-8'))
     atomic_write(raw, PLUGINS)
     # Cleanup any extra .zip files
-    all_plugin_files = {p['file'] for p in ans.itervalues()}
+    all_plugin_files = {p['file'] for p in ans.values()}
     extra = set(glob.glob('*.zip')) - all_plugin_files
     for x in extra:
         os.unlink(x)
@@ -426,7 +448,6 @@ def plugin_to_index(plugin, count):
         'Version: <b>%s</b>' % escape('.'.join(map(str, plugin['version']))),
         'Released: <b>%s</b>' % escape(released),
         'Author: %s' % escape(plugin['author']),
-        'History: %s' % escape('Yes' if plugin['history'] else 'No'),
         'calibre: %s' % escape('.'.join(map(str, plugin['minimum_calibre_version']))),
         'Platforms: %s' % escape(', '.join(sorted(plugin['supported_platforms']) or ['all'])),
     ]
@@ -498,7 +519,7 @@ h1 { text-align: center }
         name, count = x
         return '<tr><td>%s</td><td>%s</td></tr>\n' % (escape(name), count)
 
-    pstats = map(plugin_stats, sorted(stats.iteritems(), reverse=True, key=lambda x:x[1]))
+    pstats = list(map(plugin_stats, sorted(stats.items(), reverse=True, key=lambda x:x[1])))
     stats = '''\
 <!DOCTYPE html>
 <html>
@@ -568,52 +589,12 @@ def update_stats():
         if m is not None:
             plugin = m.group(1).decode('utf-8')
             stats[plugin] = stats.get(plugin, 0) + 1
+    data = json.dumps(stats, indent=2)
+    if not isinstance(data, bytes):
+        data = data.encode('utf-8')
     with open('stats.json', 'wb') as f:
-        json.dump(stats, f, indent=2)
+        f.write(data)
     return stats
-
-
-def check_for_qt5_incompatibility():
-    ok_plugins, bad_plugins = [], []
-    for name in os.listdir('.'):
-        if name.endswith('.zip') and not name.endswith('-deprecated.zip'):
-            with open(name, 'rb') as f:
-                info = get_plugin_info(f.read(), check_for_qt5=True)
-                if info['qt5']:
-                    ok_plugins.append(info)
-                else:
-                    bad_plugins.append(info)
-    plugs = ['<li>%s</li>' % x['name'] for x in bad_plugins]
-    gplugs = ('<li>%s</li>' % x['name'] for x in ok_plugins)
-    stats = '''
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Stats for porting of calibre plugins to Qt 5</title>
-<link rel="icon" type="image/x-icon" href="//calibre-ebook.com/favicon.ico" />
-<style type="text/css">
-body { background-color: #eee; }
-h1 img, h3 img { vertical-align: middle; margin-right: 0.5em; }
-h1 { text-align: center }
-</style>
-</head>
-<body>
-<h1><img src="//manual.calibre-ebook.com/_static/logo.png">Stats for porting of calibre plugins to Qt 5</h1>
-<p>Number of Qt 5 compatible plugins: %s<br>Number of Qt 5 incompatible plugins: %s<br>Percentage of plugins ported: %.0f%%</p>
-<h2>Plugins that have been ported</h2>
-<ul>
-%s
-</ul>
-<h2>Plugins still to be ported</h2>
-<ul>
-%s
-</ul>
-</body>
-</html>
-    ''' % (len(ok_plugins), len(bad_plugins), len(ok_plugins)/(max(1, len(ok_plugins) + len(bad_plugins))) * 100,
-           '\n'.join(sorted(gplugs, key=lambda x:x.lower())),
-           '\n'.join(sorted(plugs, key=lambda x:x.lower())))
-    with open('porting.html', 'wb') as f:
-        f.write(stats.encode('utf-8'))
 
 
 def main():
@@ -637,7 +618,6 @@ def main():
         plugins_index = load_plugins_index()
         plugins_index = fetch_plugins(plugins_index)
         create_index(plugins_index, stats)
-        check_for_qt5_incompatibility()
     except:
         import traceback
         log('Failed to run at:', datetime.utcnow().isoformat())
@@ -681,7 +661,7 @@ def test_parse():  # {{{
     new_entries = tuple(parse_index(raw))
     for i, entry in enumerate(old_entries):
         if entry != new_entries[i]:
-            print ('The new entry: %s != %s' % (new_entries[i], entry))
+            print('The new entry: %s != %s' % (new_entries[i], entry))
             raise SystemExit(1)
     pool = ThreadPool(processes=20)
     urls = [e.url for e in new_entries]
@@ -698,7 +678,7 @@ def test_parse():  # {{{
                 break
         new_url, aname = parse_plugin_zip_url(raw)
         if new_url != full_url:
-            print ('new url (%s): %s != %s for plugin at: %s' % (aname, new_url, full_url, url))
+            print('new url (%s): %s != %s for plugin at: %s' % (aname, new_url, full_url, url))
             raise SystemExit(1)
 
 # }}}

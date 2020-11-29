@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -78,7 +77,7 @@ class DemoTool(Tool):
 
         # Iterate over all style declarations in the book, this means css
         # stylesheets, <style> tags and style="" attributes
-        for name, media_type in container.mime_map.iteritems():
+        for name, media_type in container.mime_map.items():
             if media_type in OEB_STYLES:
                 # A stylesheet. Parsed stylesheets are css_parser CSSStylesheet
                 # objects.

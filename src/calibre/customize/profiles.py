@@ -1,12 +1,11 @@
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import with_statement
+
 __license__ = 'GPL 3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from itertools import izip
-
 from calibre.customize import Plugin as _Plugin
+from polyglot.builtins import zip
 
 FONT_SIZES = [('xx-small', 1),
               ('x-small',  None),
@@ -31,7 +30,7 @@ class Plugin(_Plugin):
         fsizes = list(self.fsizes)
         self.fkey = list(self.fsizes)
         self.fsizes = []
-        for (name, num), size in izip(FONT_SIZES, fsizes):
+        for (name, num), size in zip(FONT_SIZES, fsizes):
             self.fsizes.append((name, num, float(size)))
         self.fnames = dict((name, sz) for name, _, sz in self.fsizes if name)
         self.fnums = dict((num, sz) for _, num, sz in self.fsizes if num)
@@ -234,7 +233,7 @@ input_profiles = [InputProfile, SonyReaderInput, SonyReader300Input,
         HanlinV5Input, CybookG3Input, CybookOpusInput, KindleInput, IlliadInput,
         IRexDR1000Input, IRexDR800Input, NookInput]
 
-input_profiles.sort(cmp=lambda x,y:cmp(x.name.lower(), y.name.lower()))
+input_profiles.sort(key=lambda x: x.name.lower())
 
 # }}}
 
@@ -268,8 +267,8 @@ class OutputProfile(Plugin):
     periodical_date_in_title = True
 
     #: Characters used in jackets and catalogs
-    ratings_char = u'*'
-    empty_ratings_char = u' '
+    ratings_char = '*'
+    empty_ratings_char = ' '
 
     #: Unsupported unicode characters to be replaced during preprocessing
     unsupported_unicode_chars = []
@@ -303,12 +302,12 @@ class iPadOutput(OutputProfile):
         }
     ]
 
-    ratings_char = u'\u2605'            # filled star
-    empty_ratings_char = u'\u2606'      # hollow star
+    ratings_char = '\u2605'            # filled star
+    empty_ratings_char = '\u2606'      # hollow star
 
     touchscreen = True
     # touchscreen_news_css {{{
-    touchscreen_news_css = u'''
+    touchscreen_news_css = '''
             /* hr used in articles */
             .article_articles_list {
                 width:18%;
@@ -453,7 +452,7 @@ class iPad3Output(iPadOutput):
 
 
 class TabletOutput(iPadOutput):
-    name = 'Tablet'
+    name = _('Tablet')
     short_name = 'tablet'
     description = _('Intended for generic tablet devices, does no resizing of images')
 
@@ -542,7 +541,7 @@ class SonyReaderT3Output(SonyReaderOutput):
 
 class GenericEink(SonyReaderOutput):
 
-    name = 'Generic e-ink'
+    name = _('Generic e-ink')
     short_name = 'generic_eink'
     description = _('Suitable for use with any e-ink device')
     epub_periodical_format = None
@@ -550,7 +549,7 @@ class GenericEink(SonyReaderOutput):
 
 class GenericEinkLarge(GenericEink):
 
-    name = 'Generic e-ink large'
+    name = _('Generic e-ink large')
     short_name = 'generic_eink_large'
     description = _('Suitable for use with any large screen e-ink device')
 
@@ -560,7 +559,7 @@ class GenericEinkLarge(GenericEink):
 
 class GenericEinkHD(GenericEink):
 
-    name = 'Generic e-ink HD'
+    name = _('Generic e-ink HD')
     short_name = 'generic_eink_hd'
     description = _('Suitable for use with any modern high resolution e-ink device')
 
@@ -681,8 +680,8 @@ class KindleOutput(OutputProfile):
     supports_mobi_indexing = True
     periodical_date_in_title = False
 
-    empty_ratings_char = u'\u2606'
-    ratings_char = u'\u2605'
+    empty_ratings_char = '\u2606'
+    ratings_char = '\u2605'
 
     mobi_ems_per_blockquote = 2.0
 
@@ -700,8 +699,8 @@ class KindleDXOutput(OutputProfile):
     # comic_screen_size         = (741, 1022)
     supports_mobi_indexing = True
     periodical_date_in_title = False
-    empty_ratings_char = u'\u2606'
-    ratings_char = u'\u2605'
+    empty_ratings_char = '\u2606'
+    ratings_char = '\u2605'
     mobi_ems_per_blockquote = 2.0
 
 
@@ -871,4 +870,4 @@ output_profiles = [
     KindlePaperWhite3Output, KindleOasisOutput
 ]
 
-output_profiles.sort(cmp=lambda x,y:cmp(x.name.lower(), y.name.lower()))
+output_profiles.sort(key=lambda x: x.name.lower())

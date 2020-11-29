@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -15,6 +14,7 @@ from calibre.ebooks.docx.names import barename
 from calibre.utils.filenames import ascii_filename
 from calibre.utils.img import resize_to_fit, image_to_data
 from calibre.utils.imghdr import what
+from polyglot.builtins import iteritems, itervalues
 
 
 class LinkedImageNotFound(ValueError):
@@ -60,13 +60,33 @@ def get_image_properties(parent, XPath, get):
         title = docPr.get('title') or title
         if docPr.get('hidden', None) in {'true', 'on', '1'}:
             ans['display'] = 'none'
+    transforms = []
+    for graphic in XPath('./a:graphic')(parent):
+        for xfrm in XPath('descendant::a:xfrm')(graphic):
+            rot = xfrm.get('rot')
+            if rot:
+                try:
+                    rot = int(rot) / 60000
+                except Exception:
+                    rot = None
+            if rot:
+                transforms.append(f'rotate({rot:g}deg)')
+            fliph = xfrm.get('flipH')
+            if fliph in ('1', 'true'):
+                transforms.append('scaleX(-1)')
+            flipv = xfrm.get('flipV')
+            if flipv in ('1', 'true'):
+                transforms.append('scaleY(-1)')
+
+    if transforms:
+        ans['transform'] = ' '.join(transforms)
 
     return ans, alt, title
 
 
 def get_image_margins(elem):
     ans = {}
-    for w, css in {'L':'left', 'T':'top', 'R':'right', 'B':'bottom'}.iteritems():
+    for w, css in iteritems({'L':'left', 'T':'top', 'R':'right', 'B':'bottom'}):
         val = elem.get('dist%s' % w, None)
         if val is not None:
             try:
@@ -157,7 +177,7 @@ class Images(object):
         return raw, base
 
     def unique_name(self, base):
-        exists = frozenset(self.used.itervalues())
+        exists = frozenset(itervalues(self.used))
         c = 1
         name = base
         while name in exists:
@@ -242,7 +262,7 @@ class Images(object):
                 ans = self.pic_to_img(pic, alt, inline, title)
                 if ans is not None:
                     if style:
-                        ans.set('style', '; '.join('%s: %s' % (k, v) for k, v in style.iteritems()))
+                        ans.set('style', '; '.join('%s: %s' % (k, v) for k, v in iteritems(style)))
                     yield ans
 
         # Now process the floats
@@ -253,7 +273,7 @@ class Images(object):
                 ans = self.pic_to_img(pic, alt, anchor, title)
                 if ans is not None:
                     if style:
-                        ans.set('style', '; '.join('%s: %s' % (k, v) for k, v in style.iteritems()))
+                        ans.set('style', '; '.join('%s: %s' % (k, v) for k, v in iteritems(style)))
                     yield ans
 
     def pict_to_html(self, pict, page):
@@ -275,7 +295,7 @@ class Images(object):
                 style['margin-left'] = '0' if align == 'left' else 'auto'
                 style['margin-right'] = 'auto' if align == 'left' else '0'
             if style:
-                hr.set('style', '; '.join(('%s:%s' % (k, v) for k, v in style.iteritems())))
+                hr.set('style', '; '.join(('%s:%s' % (k, v) for k, v in iteritems(style))))
             yield hr
 
         for imagedata in XPath('descendant::v:imagedata[@r:id]')(pict):
@@ -286,9 +306,12 @@ class Images(object):
                 except LinkedImageNotFound as err:
                     self.log.warn('Linked image: %s not found, ignoring' % err.fname)
                     continue
-                img = IMG(src='images/%s' % src, style="display:block")
+                style = get(imagedata.getparent(), 'style')
+                img = IMG(src='images/%s' % src)
                 alt = get(imagedata, 'o:title')
                 img.set('alt', alt or 'Image')
+                if 'position:absolute' in style:
+                    img.set('style', 'display: block')
                 yield img
 
     def get_float_properties(self, anchor, style, page):

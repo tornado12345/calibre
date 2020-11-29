@@ -1,5 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -17,7 +18,7 @@ from PyQt5.Qt import (
     QScrollArea, QVBoxLayout, Qt, QListWidgetItem, QListWidget, QSize)
 
 from calibre import as_unicode
-from calibre.constants import isosx
+from calibre.constants import ismacos
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import (error_dialog, Dispatcher, warning_dialog, gprefs,
         info_dialog, choose_dir)
@@ -26,6 +27,7 @@ from calibre.gui2.widgets2 import Dialog
 from calibre.utils.config import prefs
 from calibre.utils.icu import sort_key, numeric_sort_key
 from calibre.db.copy_to_library import copy_one_book
+from polyglot.builtins import iteritems, itervalues, unicode_type
 
 
 def ask_about_cc_mismatch(gui, db, newdb, missing_cols, incompatible_cols):  # {{{
@@ -132,7 +134,7 @@ class Worker(Thread):  # {{{
         except Exception as err:
             import traceback
             try:
-                err = unicode(err)
+                err = unicode_type(err)
             except:
                 err = repr(err)
             self.error = (err, traceback.format_exc())
@@ -249,18 +251,19 @@ class ChooseLibrary(Dialog):  # {{{
 
     def current_changed(self):
         i = self.items.currentItem() or self.items.item(0)
-        loc = i.data(Qt.UserRole)
-        self.le.setText(loc)
+        if i is not None:
+            loc = i.data(Qt.UserRole)
+            self.le.setText(loc)
 
     def browse(self):
         d = choose_dir(self, 'choose_library_for_copy',
-                       _('Choose Library'))
+                       _('Choose library'))
         if d:
             self.le.setText(d)
 
     @property
     def args(self):
-        return (unicode(self.le.text()), self.delete_after_copy)
+        return (unicode_type(self.le.text()), self.delete_after_copy)
 # }}}
 
 
@@ -278,7 +281,7 @@ class DuplicatesQuestion(QDialog):  # {{{
         self.setWindowTitle(_('Duplicate books'))
         self.books = QListWidget(self)
         self.items = []
-        for book_id, (title, authors) in duplicates.iteritems():
+        for book_id, (title, authors) in iteritems(duplicates):
             i = QListWidgetItem(_('{0} by {1}').format(title, ' & '.join(authors[:3])), self.books)
             i.setData(Qt.UserRole, book_id)
             i.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -298,7 +301,7 @@ class DuplicatesQuestion(QDialog):  # {{{
         self.resize(600, 400)
 
     def copy_to_clipboard(self):
-        items = [('✓' if item.checkState() == Qt.Checked else '✗') + ' ' + unicode(item.text())
+        items = [('✓' if item.checkState() == Qt.Checked else '✗') + ' ' + unicode_type(item.text())
                  for item in self.items]
         QApplication.clipboard().setText('\n'.join(items))
 
@@ -371,7 +374,7 @@ class CopyToLibraryAction(InterfaceAction):
             self.menu.addAction(_('Choose library...'), self.choose_library)
 
         self.qaction.setVisible(bool(locations))
-        if isosx:
+        if ismacos:
             # The cloned action has to have its menu updated
             self.qaction.changed.emit()
 
@@ -491,13 +494,13 @@ class CopyToLibraryAction(InterfaceAction):
 
         self.gui.status_bar.show_message(donemsg.format(num=len(self.worker.processed), loc=loc), 2000)
         if self.worker.auto_merged_ids:
-            books = '\n'.join(self.worker.auto_merged_ids.itervalues())
+            books = '\n'.join(itervalues(self.worker.auto_merged_ids))
             info_dialog(self.gui, _('Auto merged'),
                     _('Some books were automatically merged into existing '
                         'records in the target library. Click "Show '
                         'details" to see which ones. This behavior is '
                         'controlled by the Auto-merge option in '
-                        'Preferences->Import/export->Adding books.'), det_msg=books,
+                        'Preferences->Import/export->Adding books->Adding actions.'), det_msg=books,
                     show=True)
         done_ids = frozenset(self.worker.processed) - frozenset(self.worker.duplicate_ids)
         if delete_after and done_ids:

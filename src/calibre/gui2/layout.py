@@ -1,5 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -18,6 +19,7 @@ from calibre.gui2.bars import BarsManager
 from calibre.gui2.widgets2 import RightClickButton
 from calibre.utils.config_base import tweaks
 from calibre import human_readable
+from polyglot.builtins import unicode_type
 
 
 class LocationManager(QObject):  # {{{
@@ -128,7 +130,7 @@ class LocationManager(QObject):  # {{{
         had_device = self.has_device
         if cp is None:
             cp = (None, None)
-        if isinstance(cp, (str, unicode)):
+        if isinstance(cp, (bytes, unicode_type)):
             cp = (cp, None)
         if len(fs) < 3:
             fs = list(fs) + [0]
@@ -149,7 +151,7 @@ class LocationManager(QObject):  # {{{
         for i, loc in enumerate(('main', 'carda', 'cardb')):
             t = self.tooltips[loc]
             if self.free[i] > -1:
-                t += u'\n\n%s '%human_readable(self.free[i]) + _('available')
+                t += '\n\n%s '%human_readable(self.free[i]) + _('available')
             ac = getattr(self, 'location_'+loc)
             ac.setToolTip(t)
             ac.setWhatsThis(t)
@@ -168,6 +170,21 @@ class LocationManager(QObject):  # {{{
         return ans
 
 # }}}
+
+
+def search_as_url(text):
+    if text:
+        from calibre.gui2.ui import get_gui
+        db = get_gui().current_db
+        lid = db.new_api.server_library_id
+        lid = lid.encode('utf-8').hex()
+        eq = text.encode('utf-8').hex()
+        vl = db.data.get_base_restriction_name()
+        ans = f'calibre://search/_hex_-{lid}?eq={eq}'
+        if vl:
+            vl = vl.encode('utf-8').hex()
+            ans += '&encoded_virtual_library=' + vl
+        return ans
 
 
 class SearchBar(QFrame):  # {{{
@@ -213,13 +230,13 @@ class SearchBar(QFrame):  # {{{
         sb.setAutoRaise(True)
         sb.setText(_('Sort'))
         sb.setIcon(QIcon(I('sort.png')))
-        sb.setMenu(QMenu())
+        sb.setMenu(QMenu(sb))
         sb.menu().aboutToShow.connect(self.populate_sort_menu)
         sb.setVisible(False)
         l.addWidget(sb)
         l.addWidget(parent.sort_sep)
 
-        x = parent.search = SearchBox2(self)
+        x = parent.search = SearchBox2(self, as_url=search_as_url)
         x.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         x.setObjectName("search")
         x.setToolTip(_("<p>Search the list of books by title, author, publisher, "
@@ -246,7 +263,7 @@ class SearchBar(QFrame):  # {{{
                 QSizePolicy.Minimum)
         self.search_button.clicked.connect(parent.do_search_button)
         self.search_button.setToolTip(
-            _('Do Quick Search (you can also press the Enter key)'))
+            _('Do quick search (you can also press the Enter key)'))
 
         x = parent.highlight_only_button = QToolButton(self)
         x.setAutoRaise(True)

@@ -1,16 +1,13 @@
+
+
 '''
 LZX compression/decompression wrapper.
 '''
-from __future__ import with_statement
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.com>'
 
-from calibre import plugins
-
-_lzx, _error = plugins['lzx']
-if _lzx is None:
-    raise RuntimeError('Failed to load the lzx plugin: %s' % _error)
+from calibre_extensions import lzx as _lzx
 
 __all__ = ['Compressor', 'Decompressor', 'LZXError']
 

@@ -1,7 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -11,6 +10,7 @@ from operator import itemgetter
 from lxml import etree
 
 from calibre.utils.icu import partition_by_first_letter, sort_key
+from polyglot.builtins import iteritems, filter
 
 
 def get_applicable_xe_fields(index, xe_fields, XPath, expand):
@@ -102,7 +102,7 @@ def process_index(field, index, xe_fields, log, XPath, expand):
     if heading_text is not None:
         groups = partition_by_first_letter(xe_fields, key=itemgetter('text'))
         items = []
-        for key, fields in groups.iteritems():
+        for key, fields in iteritems(groups):
             items.append(key), items.extend(fields)
         if styles:
             heading_style = styles[0]
@@ -246,9 +246,9 @@ def polish_index_markup(index, blocks):
         a = block.xpath('descendant::a[1]')
         text = ''
         if a:
-            text = etree.tostring(a[0], method='text', with_tail=False, encoding=unicode).strip()
+            text = etree.tostring(a[0], method='text', with_tail=False, encoding='unicode').strip()
         if ':' in text:
-            path_map[block] = parts = filter(None, (x.strip() for x in text.split(':')))
+            path_map[block] = parts = list(filter(None, (x.strip() for x in text.split(':'))))
             if len(parts) > 1:
                 split_up_block(block, a[0], text, parts, ldict)
         else:

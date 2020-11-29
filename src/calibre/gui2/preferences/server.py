@@ -1,9 +1,10 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
 
 import errno
 import json
+import numbers
 import os
 import sys
 import textwrap
@@ -23,14 +24,18 @@ from calibre.gui2 import (
     open_url, warning_dialog
 )
 from calibre.gui2.preferences import AbortCommit, ConfigWidgetBase, test_widget
+from calibre.gui2.widgets import HistoryLineEdit
 from calibre.srv.code import custom_list_template as default_custom_list_template
 from calibre.srv.embedded import custom_list_template, search_the_net_urls
+from calibre.srv.loop import parse_trusted_ips
 from calibre.srv.library_broker import load_gui_libraries
 from calibre.srv.opts import change_settings, options, server_config
 from calibre.srv.users import (
     UserManager, create_user_data, validate_password, validate_username
 )
 from calibre.utils.icu import primary_sort_key
+from calibre.utils.shared_file import share_open
+from polyglot.builtins import as_bytes, unicode_type
 
 try:
     from PyQt5 import sip
@@ -39,57 +44,39 @@ except ImportError:
 
 
 if iswindows and not isportable:
+    from calibre_extensions import winutil
+
     def get_exe():
         exe_base = os.path.abspath(os.path.dirname(sys.executable))
         exe = os.path.join(exe_base, 'calibre.exe')
         if isinstance(exe, bytes):
-            exe = exe.decode('mbcs')
+            exe = os.fsdecode(exe)
         return exe
 
     def startup_shortcut_path():
-        from win32com.shell import shell, shellcon
-        startup_path = shell.SHGetFolderPath(0, shellcon.CSIDL_STARTUP, 0, 0)
+        startup_path = winutil.special_folder_path(winutil.CSIDL_STARTUP)
         return os.path.join(startup_path, "calibre.lnk")
 
-    class Shortcut(object):
+    def create_shortcut(shortcut_path, target, description, *args):
+        quoted_args = None
+        if args:
+            quoted_args = []
+            for arg in args:
+                quoted_args.append('"{}"'.format(arg))
+            quoted_args = ' '.join(quoted_args)
+        winutil.manage_shortcut(shortcut_path, target, description, quoted_args)
 
-        def __enter__(self):
-            import pythoncom
-            from win32com.shell import shell
-            pythoncom.CoInitialize()
-            self.instance = pythoncom.CoCreateInstance(shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink)
-            self.persist_file = self.instance.QueryInterface(pythoncom.IID_IPersistFile)
-            return self
-
-        def __exit__(self, *a):
-            import pythoncom
-            del self.instance
-            del self.persist_file
-            pythoncom.CoUninitialize()
-
-        def create_at(self, shortcut_path, target, description, *args):
-            shortcut = self.instance
-            shortcut.SetPath(target)
-            shortcut.SetIconLocation(target, 0)
-            shortcut.SetDescription(description)
-            if args:
-                quoted_args = []
-                for arg in args:
-                    quoted_args.append('"{}"'.format(arg))
-                shortcut.SetArguments(' '.join(quoted_args))
-            self.persist_file.Save(shortcut_path, 0)
-
-        def exists_at(self, shortcut_path, target):
-            if not os.access(shortcut_path, os.R_OK):
-                return False
-            self.persist_file.Load(shortcut_path)
-            name = self.instance.GetPath(8)[0]
-            return os.path.normcase(os.path.abspath(name)) == os.path.normcase(os.path.abspath(get_exe()))
+    def shortcut_exists_at(shortcut_path, target):
+        if not os.access(shortcut_path, os.R_OK):
+            return False
+        name = winutil.manage_shortcut(shortcut_path, None, None, None)
+        if name is None:
+            return False
+        return os.path.normcase(os.path.abspath(name)) == os.path.normcase(os.path.abspath(target))
 
     def set_run_at_startup(run_at_startup=True):
         if run_at_startup:
-            with Shortcut() as shortcut:
-                shortcut.create_at(startup_shortcut_path(), get_exe(), 'calibre - E-book management', '--start-in-tray')
+            create_shortcut(startup_shortcut_path(), get_exe(), 'calibre - E-book management', '--start-in-tray')
         else:
             shortcut_path = startup_shortcut_path()
             if os.path.exists(shortcut_path):
@@ -97,8 +84,7 @@ if iswindows and not isportable:
 
     def is_set_to_run_at_startup():
         try:
-            with Shortcut() as shortcut:
-                return shortcut.exists_at(startup_shortcut_path(), get_exe())
+            return shortcut_exists_at(startup_shortcut_path(), get_exe())
         except Exception:
             import traceback
             traceback.print_exc()
@@ -142,7 +128,7 @@ class Int(QSpinBox):
 
     def __init__(self, name, layout):
         QSpinBox.__init__(self)
-        self.setRange(0, 10000)
+        self.setRange(0, 20000)
         opt = options[name]
         self.valueChanged.connect(self.changed_signal.emit)
         init_opt(self, opt, layout)
@@ -160,7 +146,7 @@ class Float(QDoubleSpinBox):
 
     def __init__(self, name, layout):
         QDoubleSpinBox.__init__(self)
-        self.setRange(0, 10000)
+        self.setRange(0, 20000)
         self.setDecimals(1)
         opt = options[name]
         self.valueChanged.connect(self.changed_signal.emit)
@@ -188,7 +174,7 @@ class Text(QLineEdit):
         return self.text().strip() or None
 
     def set(self, val):
-        self.setText(type(u'')(val or ''))
+        self.setText(unicode_type(val or ''))
 
 
 class Path(QWidget):
@@ -201,9 +187,10 @@ class Path(QWidget):
         opt = options[name]
         self.l = l = QHBoxLayout(self)
         l.setContentsMargins(0, 0, 0, 0)
-        self.text = t = QLineEdit(self)
+        self.text = t = HistoryLineEdit(self)
+        t.initialize('server-opts-{}'.format(name))
         t.setClearButtonEnabled(True)
-        t.textChanged.connect(self.changed_signal.emit)
+        t.currentTextChanged.connect(self.changed_signal.emit)
         l.addWidget(t)
 
         self.b = b = QToolButton(self)
@@ -217,12 +204,13 @@ class Path(QWidget):
         return self.text.text().strip() or None
 
     def set(self, val):
-        self.text.setText(type(u'')(val or ''))
+        self.text.setText(unicode_type(val or ''))
 
     def choose(self):
         ans = choose_files(self, 'choose_path_srv_opts_' + self.dname, _('Choose a file'), select_only_single_file=True)
         if ans:
             self.set(ans[0])
+            self.text.save_history()
 
 
 class Choices(QComboBox):
@@ -267,9 +255,9 @@ class AdvancedTab(QWidget):
                 w = Choices
             elif isinstance(opt.default, bool):
                 w = Bool
-            elif isinstance(opt.default, (int, long)):
+            elif isinstance(opt.default, numbers.Integral):
                 w = Int
-            elif isinstance(opt.default, float):
+            elif isinstance(opt.default, numbers.Real):
                 w = Float
             else:
                 w = Text
@@ -734,10 +722,7 @@ class User(QWidget):
         l.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.username_label = la = QLabel('')
         l.addWidget(la)
-        self.cpb = b = QPushButton(_('Change &password'))
-        l.addWidget(b)
-        b.clicked.connect(self.change_password)
-        self.ro_text = _('Allow {} to make &changes (i.e. grant write access)?')
+        self.ro_text = _('Allow {} to make &changes (i.e. grant write access)')
         self.rw = rw = QCheckBox(self)
         rw.setToolTip(
             _(
@@ -749,6 +734,9 @@ class User(QWidget):
         l.addWidget(rw)
         self.access_label = la = QLabel(self)
         l.addWidget(la), la.setWordWrap(True)
+        self.cpb = b = QPushButton(_('Change &password'))
+        l.addWidget(b)
+        b.clicked.connect(self.change_password)
         self.restrict_button = b = QPushButton(self)
         b.clicked.connect(self.change_restriction)
         l.addWidget(b)
@@ -769,14 +757,20 @@ class User(QWidget):
         username, user_data = self.username, self.user_data
         r = user_data[username]['restriction']
         if r['allowed_library_names']:
-            m = _(
-                '{} is currently only allowed to access the libraries named: {}'
-            ).format(username, ', '.join(r['allowed_library_names']))
+            libs = r['allowed_library_names']
+            m = ngettext(
+                '{} is currently only allowed to access the library named: {}',
+                '{} is currently only allowed to access the libraries named: {}',
+                len(libs)
+            ).format(username, ', '.join(libs))
             b = _('Change the allowed libraries')
         elif r['blocked_library_names']:
-            m = _(
-                '{} is currently not allowed to access the libraries named: {}'
-            ).format(username, ', '.join(r['blocked_library_names']))
+            libs = r['blocked_library_names']
+            m = ngettext(
+                '{} is currently not allowed to access the library named: {}',
+                '{} is currently not allowed to access the libraries named: {}',
+                len(libs)
+            ).format(username, ', '.join(libs))
             b = _('Change the blocked libraries')
         else:
             m = _('{} is currently allowed access to all libraries')
@@ -965,7 +959,7 @@ class CustomList(QWidget):  # {{{
         if path:
             raw = self.serialize(self.current_template)
             with lopen(path, 'wb') as f:
-                f.write(raw)
+                f.write(as_bytes(raw))
 
     def thumbnail_state_changed(self):
         is_enabled = bool(self.thumbnail.isChecked())
@@ -1018,7 +1012,7 @@ class CustomList(QWidget):  # {{{
         else:
             raw = self.serialize(template)
             with lopen(custom_list_template.path, 'wb') as f:
-                f.write(raw)
+                f.write(as_bytes(raw))
         return True
 
 # }}}
@@ -1282,7 +1276,7 @@ class ConfigWidget(ConfigWidgetBase):
             if self.server.exception is not None:
                 error_dialog(
                     self,
-                    _('Failed to start content server'),
+                    _('Failed to start Content server'),
                     as_unicode(self.gui.content_server.exception)
                 ).exec_()
                 self.gui.content_server = None
@@ -1333,7 +1327,7 @@ class ConfigWidget(ConfigWidgetBase):
         layout.addWidget(el)
         try:
             el.setPlainText(
-                lopen(log_error_file, 'rb').read().decode('utf8', 'replace')
+                share_open(log_error_file, 'rb').read().decode('utf8', 'replace')
             )
         except EnvironmentError:
             el.setPlainText(_('No error log found'))
@@ -1342,7 +1336,7 @@ class ConfigWidget(ConfigWidgetBase):
         layout.addWidget(al)
         try:
             al.setPlainText(
-                lopen(log_access_file, 'rb').read().decode('utf8', 'replace')
+                share_open(log_access_file, 'rb').read().decode('utf8', 'replace')
             )
         except EnvironmentError:
             al.setPlainText(_('No access log found'))
@@ -1392,6 +1386,14 @@ class ConfigWidget(ConfigWidgetBase):
                 )
                 self.tabs_widget.setCurrentWidget(self.users_tab)
                 return False
+        if settings['trusted_ips']:
+            try:
+                tuple(parse_trusted_ips(settings['trusted_ips']))
+            except Exception as e:
+                error_dialog(
+                    self, _('Invalid trusted IPs'), str(e), show=True)
+                return False
+
         if not self.custom_list_tab.commit():
             return False
         if not self.search_net_tab.commit():

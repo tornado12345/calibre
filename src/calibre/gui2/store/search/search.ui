@@ -333,10 +333,6 @@
        <property name="text">
         <string>&amp;Close</string>
        </property>
-       <property name="icon">
-        <iconset resource="../../../../../resources/images.qrc">
-         <normaloff>:/images/window-close.png</normaloff>:/images/window-close.png</iconset>
-       </property>
       </widget>
      </item>
     </layout>
@@ -347,7 +343,7 @@
   <customwidget>
    <class>ResultsView</class>
    <extends>QTreeView</extends>
-   <header>results_view.h</header>
+   <header>calibre/gui2/store/search/results_view.h</header>
   </customwidget>
   <customwidget>
    <class>HistoryLineEdit2</class>

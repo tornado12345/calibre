@@ -129,7 +129,7 @@ static PyObject* create_rsa_cert_req(PyObject *self, PyObject *args) {
         for (i = 0; i < PySequence_Length(alt_names); i++) {
             t = PySequence_ITEM(alt_names, i);
             memset(buf, 0, 1024);
-            snprintf(buf, 1023, "DNS:%s", PyBytes_AS_STRING(t));
+            snprintf(buf, 1023, "%s", PyBytes_AS_STRING(t));
             Py_XDECREF(t);
             if(!add_ext(exts, NID_subject_alt_name, buf)) goto error;
         }
@@ -379,36 +379,21 @@ static PyMethodDef certgen_methods[] = {
 };
 
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-static struct PyModuleDef certgen_module = {
-    /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "certgen",
-    /* m_doc      */ "OpenSSL bindings to easily create certificates/certificate authorities.",
-    /* m_size     */ -1,
-    /* m_methods  */ certgen_methods,
-    /* m_slots    */ 0,
-    /* m_traverse */ 0,
-    /* m_clear    */ 0,
-    /* m_free     */ 0,
-};
-
-CALIBRE_MODINIT_FUNC PyInit_certgen(void) {
-    PyObject *mod = PyModule_Create(&certgen_module);
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC initcertgen(void) {
-    PyObject *mod = Py_InitModule3("certgen", certgen_methods,
-        "OpenSSL bindings to easily create certificates/certificate authorities");
-#endif
-
-    if (mod == NULL) INITERROR;
-
+static int
+exec_module(PyObject *module) {
     OpenSSL_add_all_algorithms();
     ERR_load_crypto_strings();
     ERR_load_BIO_strings();
-
-#if PY_MAJOR_VERSION >= 3
-    return mod;
-#endif
+	return 0;
 }
+static PyModuleDef_Slot slots[] = { {Py_mod_exec, exec_module}, {0, NULL} };
+
+static struct PyModuleDef module_def = {
+    .m_base     = PyModuleDef_HEAD_INIT,
+    .m_name     = "certgen",
+    .m_doc      = "OpenSSL bindings to easily create certificates/certificate authorities.",
+    .m_methods  = certgen_methods,
+    .m_slots    = slots,
+};
+
+CALIBRE_MODINIT_FUNC PyInit_certgen(void) { return PyModuleDef_Init(&module_def); }

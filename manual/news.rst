@@ -40,7 +40,7 @@ and then the :guilabel:`Add a custom news source` menu item and then the
 .. image:: images/custom_news.png
     :align: center
 
-First enter ``calibre Blog`` into the :guilabel:`Recipe title` field. This will be the title of the e-book that will be created from the articles in the above feeds.
+First enter ``Calibre Blog`` into the :guilabel:`Recipe title` field. This will be the title of the e-book that will be created from the articles in the above feeds.
 
 The next two fields (:guilabel:`Oldest article` and :guilabel:`Max. number of articles`) allow you some control over how many articles should be downloaded from each feed, and they are pretty self explanatory.
 
@@ -57,7 +57,7 @@ The reason this worked so well, with so little effort is that the blog provides 
 bbc.co.uk
 ~~~~~~~~~~~~~~
 
-Lets try the following two feeds from *The BBC*:
+Let's try the following two feeds from *The BBC*:
 
     #. News Front Page: https://newsrss.bbc.co.uk/rss/newsonline_world_edition/front_page/rss.xml
     #. Science/Nature: https://newsrss.bbc.co.uk/rss/newsonline_world_edition/science/nature/rss.xml
@@ -86,7 +86,7 @@ So it looks like to get the print version, we need to prefix every article URL w
 
     newsvote.bbc.co.uk/mpapps/pagetools/print/
 
-Now in the :guilabel:`Advanced Mode` of the Custom  news sources dialog, you should see something like (remember to select *The BBC* recipe before switching to advanced mode):
+Now in the :guilabel:`Advanced mode` of the Custom news sources dialog, you should see something like (remember to select *The BBC* recipe before switching to advanced mode):
 
 .. image:: images/bbc_advanced.png
     :align: center
@@ -103,7 +103,7 @@ This is Python, so indentation is important. After you've added the lines, it sh
 .. image:: images/bbc_altered.png
     :align: center
 
-In the above, ``def print_version(self, url)`` defines a *method* that is called by calibre for every article. ``url`` is the URL of the original article. What ``print_version`` does is take that url and replace it with the new URL that points to the print version of the article. To learn about `Python <https://www.python.org>`_ see the `tutorial <https://docs.python.org/2/tutorial/>`_.
+In the above, ``def print_version(self, url)`` defines a *method* that is called by calibre for every article. ``url`` is the URL of the original article. What ``print_version`` does is take that url and replace it with the new URL that points to the print version of the article. To learn about `Python <https://www.python.org>`_ see the `tutorial <https://docs.python.org/tutorial/>`_.
 
 Now, click the :guilabel:`Add/update recipe` button and your changes will be saved. Re-download the e-book. You should have a much improved e-book. One of the problems with the new version is that the fonts on the print version webpage are too small. This is automatically fixed when converting to an e-book, but even after the fixing process, the font size of the menus and navigation bar to become too large relative to the article text. To fix this, we will do some more customization, in the next section.
 
@@ -142,9 +142,7 @@ to the recipe. Finally, lets replace some of the :term:`CSS` that we disabled ea
 
     extra_css      = '.headline {font-size: x-large;} \n .fact { padding-top: 10pt  }'
 
-With these additions, our recipe has become "production quality", indeed it is very close to the actual recipe used by calibre for the *BBC*, shown below:
-
-.. literalinclude:: ../../../recipes/bbc.recipe
+With these additions, our recipe has become "production quality".
 
 This :term:`recipe` explores only the tip of the iceberg when it comes to the power of calibre. To explore more of the abilities of calibre we'll examine a more complex real life example in the next section.
 
@@ -198,12 +196,12 @@ A reasonably complex real life example that exposes more of the :term:`API` of `
            for div in soup.findAll(True,
                 attrs={'class':['section-headline', 'story', 'story headline']}):
 
-                if div['class'] == 'section-headline':
+                if ''.join(div['class']) == 'section-headline':
                     key = string.capwords(feed_title(div))
                     articles[key] = []
                     ans.append(key)
 
-                elif div['class'] in ['story', 'story headline']:
+                elif ''.join(div['class']) in ['story', 'story headline']:
                     a = div.find('a', href=True)
                     if not a:
                         continue
@@ -217,7 +215,7 @@ A reasonably complex real life example that exposes more of the :term:`API` of `
                         description = self.tag_to_string(summary, use_alt=False)
 
                     feed = key if key is not None else 'Uncategorized'
-                    if not articles.has_key(feed):
+                    if feed not in articles:
                         articles[feed] = []
                     if not 'podcasts' in url:
                         articles[feed].append(
@@ -225,7 +223,7 @@ A reasonably complex real life example that exposes more of the :term:`API` of `
                                        description=description,
                                        content=''))
            ans = self.sort_index_by(ans, {'The Front Page':-1, 'Dining In, Dining Out':1, 'Obituaries':2})
-           ans = [(key, articles[key]) for key in ans if articles.has_key(key)]
+           ans = [(key, articles[key]) for key in ans if key in articles]
            return ans
 
        def preprocess_html(self, soup):
@@ -267,7 +265,7 @@ to go to https://www.nytimes.com/pages/todayspaper/index.html and fetch the list
 of articles that appear in *todays* paper. While more complex than simply using
 :term:`RSS`, the recipe creates an e-book that corresponds very closely to the
 days paper. ``parse_index`` makes heavy use of `BeautifulSoup
-<https://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_ to parse
+<https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ to parse
 the daily paper webpage. You can also use other, more modern parsers if you
 dislike BeautifulSoup. calibre comes with `lxml <https://lxml.de/>`_ and
 `html5lib <https://github.com/html5lib/html5lib-python>`_, which are the
@@ -311,7 +309,7 @@ If you're satisfied with your recipe, and you feel there is enough demand to jus
 .. note::
     On macOS, the command line tools are inside the calibre bundle, for example,
     if you installed calibre in :file:`/Applications` the command line tools
-    are in :file:`/Applications/calibre.app/Contents/console.app/Contents/MacOS/`.
+    are in :file:`/Applications/calibre.app/Contents/MacOS/`.
 
 .. seealso::
 

@@ -1,15 +1,27 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
+
+from urllib.request import (build_opener, getproxies, install_opener,  # noqa
+        HTTPBasicAuthHandler, HTTPCookieProcessor, HTTPDigestAuthHandler,  # noqa
+        url2pathname, urlopen, Request)  # noqa
+from urllib.parse import (parse_qs, quote, unquote as uq, quote_plus, urldefrag,  # noqa
+        urlencode, urljoin, urlparse, urlunparse, urlsplit, urlunsplit)  # noqa
+from urllib.error import HTTPError, URLError  # noqa
 
 
-from polyglot.builtins import is_py3
+def unquote(x, encoding='utf-8', errors='replace'):
+    binary = isinstance(x, bytes)
+    if binary:
+        x = x.decode(encoding, errors)
+    ans = uq(x, encoding, errors)
+    if binary:
+        ans = ans.encode(encoding, errors)
+    return ans
 
-if is_py3:
-    from urllib.request import urlopen, Request  # noqa
-    from urllib.parse import urlencode  # noqa
-else:
-    from urllib import urlencode  # noqa
-    from urllib2 import urlopen, Request  # noqa
+
+def unquote_plus(x, encoding='utf-8', errors='replace'):
+    q, repl = (b'+', b' ') if isinstance(x, bytes) else ('+', ' ')
+    x = x.replace(q, repl)
+    return unquote(x, encoding=encoding, errors=errors)

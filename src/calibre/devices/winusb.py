@@ -1,11 +1,9 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
 
-import os, string, _winreg as winreg, re, sys
+import os, string, re, sys, errno
 from collections import namedtuple, defaultdict
 from operator import itemgetter
 from ctypes import (
@@ -15,11 +13,17 @@ from ctypes import (
 )
 from ctypes.wintypes import DWORD, WORD, ULONG, LPCWSTR, HWND, BOOL, LPWSTR, UINT, BYTE, HANDLE, USHORT
 from pprint import pprint, pformat
-from polyglot.builtins import map
+from polyglot.builtins import iteritems, itervalues, map, filter
 
 from calibre import prints, as_unicode
 
 is64bit = sys.maxsize > (1 << 32)
+
+try:
+    import winreg
+except ImportError:
+    import _winreg as winreg
+
 
 # Data and function type definitions {{{
 
@@ -394,7 +398,7 @@ def bool_err_check(result, func, args):
 
 def config_err_check(result, func, args):
     if result != CR_CODES['CR_SUCCESS']:
-        raise WindowsError(result, 'The cfgmgr32 function failed with err: %s' % CR_CODE_NAMES.get(result, result))
+        raise WinError(result, 'The cfgmgr32 function failed with err: %s' % CR_CODE_NAMES.get(result, result))
     return args
 
 
@@ -460,7 +464,7 @@ class DeviceSet(object):
                 break
             try:
                 buf, devinfo, devpath = get_device_interface_detail_data(self.dev_list, byref(interface_data), buf)
-            except WindowsError:
+            except OSError:
                 if ignore_errors:
                     continue
                 raise
@@ -485,7 +489,7 @@ def iterchildren(parent_devinst):
     NO_MORE = CR_CODES['CR_NO_SUCH_DEVINST']
     try:
         CM_Get_Child(byref(child), parent_devinst, 0)
-    except WindowsError as err:
+    except OSError as err:
         if err.winerror == NO_MORE:
             return
         raise
@@ -493,7 +497,7 @@ def iterchildren(parent_devinst):
     while True:
         try:
             CM_Get_Sibling(byref(child), child, 0)
-        except WindowsError as err:
+        except OSError as err:
             if err.winerror == NO_MORE:
                 break
             raise
@@ -513,7 +517,7 @@ def iterancestors(devinst):
     while True:
         try:
             CM_Get_Parent(byref(parent), parent, 0)
-        except WindowsError as err:
+        except OSError as err:
             if err.winerror == NO_MORE:
                 break
             raise
@@ -526,7 +530,7 @@ def device_io_control(handle, which, inbuf, outbuf, initbuf):
         initbuf(inbuf)
         try:
             DeviceIoControl(handle, which, inbuf, len(inbuf), outbuf, len(outbuf), byref(bytes_returned), None)
-        except WindowsError as err:
+        except OSError as err:
             if err.winerror not in (ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA):
                 raise
             outbuf = create_string_buffer(2*len(outbuf))
@@ -556,7 +560,7 @@ def get_device_id(devinst, buf=None):
             buf = create_unicode_buffer(devid_size.value)
             continue
         if ret != CR_CODES['CR_SUCCESS']:
-            raise WindowsError((ret, 'The cfgmgr32 function failed with err: %s' % CR_CODE_NAMES.get(ret, ret)))
+            raise WinError(ret, 'The cfgmgr32 function failed with err: %s' % CR_CODE_NAMES.get(ret, ret))
         break
     return wstring_at(buf), buf
 
@@ -652,13 +656,13 @@ def get_volume_information(drive_letter):
         'max_component_length': max_component_length.value,
     }
 
-    for name, num in {'FILE_CASE_PRESERVED_NAMES':0x00000002, 'FILE_CASE_SENSITIVE_SEARCH':0x00000001, 'FILE_FILE_COMPRESSION':0x00000010,
+    for name, num in iteritems({'FILE_CASE_PRESERVED_NAMES':0x00000002, 'FILE_CASE_SENSITIVE_SEARCH':0x00000001, 'FILE_FILE_COMPRESSION':0x00000010,
               'FILE_NAMED_STREAMS':0x00040000, 'FILE_PERSISTENT_ACLS':0x00000008, 'FILE_READ_ONLY_VOLUME':0x00080000,
               'FILE_SEQUENTIAL_WRITE_ONCE':0x00100000, 'FILE_SUPPORTS_ENCRYPTION':0x00020000, 'FILE_SUPPORTS_EXTENDED_ATTRIBUTES':0x00800000,
               'FILE_SUPPORTS_HARD_LINKS':0x00400000, 'FILE_SUPPORTS_OBJECT_IDS':0x00010000, 'FILE_SUPPORTS_OPEN_BY_FILE_ID':0x01000000,
               'FILE_SUPPORTS_REPARSE_POINTS':0x00000080, 'FILE_SUPPORTS_SPARSE_FILES':0x00000040, 'FILE_SUPPORTS_TRANSACTIONS':0x00200000,
               'FILE_SUPPORTS_USN_JOURNAL':0x02000000, 'FILE_UNICODE_ON_DISK':0x00000004, 'FILE_VOLUME_IS_COMPRESSED':0x00008000,
-              'FILE_VOLUME_QUOTAS':0x00000020}.iteritems():
+              'FILE_VOLUME_QUOTAS':0x00000020}):
         ans[name] = bool(num & flags)
     return ans
 
@@ -671,13 +675,13 @@ def get_volume_pathnames(volume_id, buf=None):
         try:
             GetVolumePathNamesForVolumeName(volume_id, buf, len(buf), byref(bufsize))
             break
-        except WindowsError as err:
+        except OSError as err:
             if err.winerror == ERROR_MORE_DATA:
                 buf = create_unicode_buffer(bufsize.value + 10)
                 continue
             raise
     ans = wstring_at(buf, bufsize.value)
-    return buf, filter(None, ans.split('\0'))
+    return buf, list(filter(None, ans.split('\0')))
 
 # }}}
 
@@ -773,11 +777,11 @@ def get_drive_letters_for_device_single(usbdev, storage_number_map, debug=False)
             if debug:
                 try:
                     devid = get_device_id(devinfo.DevInst)[0]
-                except Exception as err:
+                except Exception:
                     devid = 'Unknown'
             try:
                 storage_number = get_storage_number(devpath)
-            except WindowsError as err:
+            except OSError as err:
                 if debug:
                     prints('Failed to get storage number for: %s with error: %s' % (devid, as_unicode(err)))
                 continue
@@ -798,7 +802,7 @@ def get_drive_letters_for_device_single(usbdev, storage_number_map, debug=False)
         try:
             if is_readonly(dl):
                 ans['readonly_drives'].add(dl)
-        except WindowsError as err:
+        except OSError as err:
             if debug:
                 prints('Failed to get readonly status for drive: %s with error: %s' % (dl, as_unicode(err)))
 
@@ -809,17 +813,17 @@ def get_storage_number_map(drive_types=(DRIVE_REMOVABLE, DRIVE_FIXED), debug=Fal
     ' Get a mapping of drive letters to storage numbers for all drives on system (of the specified types) '
     mask = GetLogicalDrives()
     type_map = {letter:GetDriveType(letter + ':' + os.sep) for i, letter in enumerate(string.ascii_uppercase) if mask & (1 << i)}
-    drives = (letter for letter, dt in type_map.iteritems() if dt in drive_types)
+    drives = (letter for letter, dt in iteritems(type_map) if dt in drive_types)
     ans = defaultdict(list)
     for letter in drives:
         try:
             sn = get_storage_number('\\\\.\\' + letter + ':')
             ans[sn[:2]].append((sn[2], letter))
-        except WindowsError as err:
+        except OSError as err:
             if debug:
                 prints('Failed to get storage number for drive: %s with error: %s' % (letter, as_unicode(err)))
             continue
-    for val in ans.itervalues():
+    for val in itervalues(ans):
         val.sort(key=itemgetter(0))
     return dict(ans)
 
@@ -833,14 +837,14 @@ def get_storage_number_map_alt(debug=False):
             devpath += os.sep
         try:
             GetVolumeNameForVolumeMountPoint(devpath, wbuf, len(wbuf))
-        except WindowsError as err:
+        except OSError as err:
             if debug:
                 prints('Failed to get volume id for drive: %s with error: %s' % (devpath, as_unicode(err)))
             continue
         vname = wbuf.value
         try:
             wbuf, names = get_volume_pathnames(vname, buf=wbuf)
-        except WindowsError as err:
+        except OSError as err:
             if debug:
                 prints('Failed to get mountpoints for volume %s with error: %s' % (devpath, as_unicode(err)))
             continue
@@ -855,11 +859,11 @@ def get_storage_number_map_alt(debug=False):
         try:
             sn = get_storage_number('\\\\.\\' + name[0] + ':')
             ans[sn[:2]].append((sn[2], name[0]))
-        except WindowsError as err:
+        except OSError as err:
             if debug:
                 prints('Failed to get storage number for drive: %s with error: %s' % (name[0], as_unicode(err)))
             continue
-    for val in ans.itervalues():
+    for val in itervalues(ans):
         val.sort(key=itemgetter(0))
     return dict(ans)
 
@@ -911,7 +915,7 @@ def get_usb_info(usbdev, debug=False):  # {{{
                 if index:
                     try:
                         buf, ans[name] = get_device_string(handle, device_port, index, buf=buf)
-                    except WindowsError as err:
+                    except OSError as err:
                         if debug:
                             # Note that I have observed that this fails
                             # randomly after some time of my Kindle being
@@ -957,7 +961,7 @@ def get_device_string(hub_handle, device_port, index, buf=None, lang=0x409):
     data = cast(buf, PUSB_DESCRIPTOR_REQUEST).contents.Data
     sz, dtype = data.bLength, data.bType
     if dtype != 0x03:
-        raise WindowsError('Invalid datatype for string descriptor: 0x%x' % dtype)
+        raise OSError(errno.EINVAL, 'Invalid datatype for string descriptor: 0x%x' % dtype)
     return buf, wstring_at(addressof(data.String), sz // 2).rstrip('\0')
 
 
@@ -977,9 +981,9 @@ def get_device_languages(hub_handle, device_port, buf=None):
     data = cast(buf, PUSB_DESCRIPTOR_REQUEST).contents.Data
     sz, dtype = data.bLength, data.bType
     if dtype != 0x03:
-        raise WindowsError('Invalid datatype for string descriptor: 0x%x' % dtype)
+        raise OSError(errno.EINVAL, 'Invalid datatype for string descriptor: 0x%x' % dtype)
     data = cast(data.String, POINTER(USHORT*(sz//2)))
-    return buf, filter(None, data.contents)
+    return buf, list(filter(None, data.contents))
 
 # }}}
 
@@ -995,8 +999,7 @@ def develop():  # {{{
     drive_letters = set()
     pprint(usb_devices)
     print()
-    devplugins = list(sorted(device_plugins(), cmp=lambda
-            x,y:cmp(x.__class__.__name__, y.__class__.__name__)))
+    devplugins = list(sorted(device_plugins(), key=lambda x: x.__class__.__name__))
     for dev in devplugins:
         dev.startup()
     for dev in devplugins:

@@ -21,7 +21,7 @@ available <https://calibre-ebook.com/help>`_.
 
 .. only:: online
 
-    **An e-book version of this user manual is available in** `EPUB format <calibre.epub>`_,  `AZW3 (Kindle Fire) format <calibre.azw3>`_ and `PDF format <calibre.pdf>`_.
+    **An e-book version of this User Manual is available in** `EPUB format <calibre.epub>`_,  `AZW3 (Kindle Fire) format <calibre.azw3>`_ and `PDF format <calibre.pdf>`_.
 
 .. rubric:: Sections
 
@@ -38,7 +38,9 @@ available <https://calibre-ebook.com/help>`_.
    metadata
    faq
    tutorials
+   url_scheme
    customize
    generated/en/cli-index
    develop
+   drm
    glossary

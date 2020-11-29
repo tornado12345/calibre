@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john at nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
@@ -137,4 +138,24 @@ class MUSE(CYBOOK):
     def can_handle(cls, device_info, debug=False):
         if isunix:
             return device_info[3] == 'Bookeen' and device_info[4] in ('Cybook', 'Lev', 'Nolimbook', 'Letto', 'Nolim', 'Saga', 'NolimbookXL')
+        return True
+
+
+class DIVA(CYBOOK):
+
+    name           = 'Bookeen Diva HD Device Interface'
+    gui_name       = 'Diva HD'
+    description    = _('Communicate with the Bookeen Diva HD e-book reader.')
+    author         = 'Kovid Goyal'
+
+    VENDOR_ID = [0x1d6b]
+    PRODUCT_ID = [0x0104]
+    BCD = [0x100]
+
+    FORMATS     = ['epub', 'html', 'fb2', 'txt', 'pdf']
+    EBOOK_DIR_MAIN = 'Books'
+    SCAN_FROM_ROOT = True
+
+    @classmethod
+    def can_handle(cls, device_info, debug=False):
         return True

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import print_function
+
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john at nachtimwald.com> ' \
                 '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -21,11 +21,11 @@ from calibre.constants import DEBUG
 from calibre.devices.interface import DevicePlugin
 from calibre.devices.errors import DeviceError
 from calibre.devices.usbms.deviceconfig import DeviceConfig
-from calibre.constants import iswindows, islinux, isosx, isfreebsd, plugins
+from calibre.constants import iswindows, islinux, ismacos, isfreebsd
 from calibre.utils.filenames import ascii_filename as sanitize
+from polyglot.builtins import iteritems, string_or_bytes, map
 
-if isosx:
-    usbobserver, usbobserver_err = plugins['usbobserver']
+if ismacos:
     osx_sanitize_name_pat = re.compile(r'[.-]')
 
 if iswindows:
@@ -85,17 +85,17 @@ class Device(DeviceConfig, DevicePlugin):
 
     VENDOR_NAME = None
 
-    #: String identifying the main memory of the device in the windows PnP id
+    #: String identifying the main memory of the device in the Windows PnP id
     #: strings
     #: This can be None, string, list of strings or compiled regex
     WINDOWS_MAIN_MEM = None
 
-    #: String identifying the first card of the device in the windows PnP id
+    #: String identifying the first card of the device in the Windows PnP id
     #: strings
     #: This can be None, string, list of strings or compiled regex
     WINDOWS_CARD_A_MEM = None
 
-    #: String identifying the second card of the device in the windows PnP id
+    #: String identifying the second card of the device in the Windows PnP id
     #: strings
     #: This can be None, string, list of strings or compiled regex
     WINDOWS_CARD_B_MEM = None
@@ -145,20 +145,17 @@ class Device(DeviceConfig, DevicePlugin):
         if not prefix:
             return 0, 0
         prefix = prefix[:-1]
-        import win32file, winerror
+        from calibre_extensions import winutil
         try:
-            sectors_per_cluster, bytes_per_sector, free_clusters, total_clusters = \
-                win32file.GetDiskFreeSpace(prefix)
-        except Exception as err:
-            if getattr(err, 'args', [None])[0] == winerror.ERROR_NOT_READY:
+            available_space, total_space, free_space = winutil.get_disk_free_space(prefix)
+        except OSError as err:
+            if err.winerror == winutil.ERROR_NOT_READY:
                 # Disk not ready
                 time.sleep(3)
-                sectors_per_cluster, bytes_per_sector, free_clusters, total_clusters = \
-                    win32file.GetDiskFreeSpace(prefix)
+                available_space, total_space, free_space = winutil.get_disk_free_space(prefix)
             else:
                 raise
-        mult = sectors_per_cluster * bytes_per_sector
-        return total_clusters * mult, free_clusters * mult
+        return total_space, available_space
 
     def total_space(self, end_session=True):
         msz = casz = cbsz = 0
@@ -210,8 +207,7 @@ class Device(DeviceConfig, DevicePlugin):
         return drives
 
     def can_handle_windows(self, usbdevice, debug=False):
-        from calibre.devices.interface import DevicePlugin
-        if self.can_handle.im_func is DevicePlugin.can_handle.im_func:
+        if hasattr(self.can_handle, 'is_base_class_implementation'):
             # No custom can_handle implementation
             return True
         # Delegate to the unix can_handle function, creating a unix like
@@ -243,9 +239,9 @@ class Device(DeviceConfig, DevicePlugin):
         try:
             dlmap = get_drive_letters_for_device(usbdev, debug=debug)
         except Exception:
-            dlmap = []
+            dlmap = {}
 
-        if not dlmap['drive_letters']:
+        if not dlmap.get('drive_letters'):
             time.sleep(7)
             dlmap = get_drive_letters_for_device(usbdev, debug=debug)
 
@@ -317,9 +313,8 @@ class Device(DeviceConfig, DevicePlugin):
 
     @classmethod
     def osx_get_usb_drives(cls):
-        if usbobserver_err:
-            raise RuntimeError('Failed to load usbobserver: '+usbobserver_err)
-        return usbobserver.get_usb_drives()
+        from calibre_extensions.usbobserver import get_usb_drives
+        return get_usb_drives()
 
     def _osx_bsd_names(self):
         drives = self.osx_get_usb_drives()
@@ -355,9 +350,9 @@ class Device(DeviceConfig, DevicePlugin):
             g = m.groupdict()
             if g['p'] is None:
                 g['p'] = 0
-            return map(int, (g.get('m'), g.get('p')))
+            return list(map(int, (g.get('m'), g.get('p'))))
 
-        def dcmp(x, y):
+        def cmp_key(x):
             '''
             Sorting based on the following scheme:
                 - disks without partitions are first
@@ -366,18 +361,11 @@ class Device(DeviceConfig, DevicePlugin):
                   disk number, then on partition number
             '''
             x = x.rpartition('/')[-1]
-            y = y.rpartition('/')[-1]
-            x, y = nums(x), nums(y)
-            if x[1] == 0 and y[1] > 0:
-                return cmp(1, 2)
-            if x[1] > 0 and y[1] == 0:
-                return cmp(2, 1)
-            ans = cmp(x[0], y[0])
-            if ans == 0:
-                ans = cmp(x[1], y[1])
-            return ans
+            disk_num, part_num = nums(x)
+            has_part = 1 if part_num > 0 else 0
+            return has_part, disk_num, part_num
 
-        matches.sort(cmp=dcmp)
+        matches.sort(key=cmp_key)
         drives = {'main':matches[0]}
         if len(matches) > 1:
             drives['carda'] = matches[1]
@@ -400,10 +388,11 @@ class Device(DeviceConfig, DevicePlugin):
         return drives
 
     def open_osx(self):
+        from calibre_extensions.usbobserver import get_mounted_filesystems
         bsd_drives = self.osx_bsd_names()
         drives = self.osx_sort_names(bsd_drives.copy())
-        mount_map = usbobserver.get_mounted_filesystems()
-        drives = {k: mount_map.get(v) for k, v in drives.iteritems()}
+        mount_map = get_mounted_filesystems()
+        drives = {k: mount_map.get(v) for k, v in iteritems(drives)}
         if DEBUG:
             print()
             from pprint import pprint
@@ -473,8 +462,10 @@ class Device(DeviceConfig, DevicePlugin):
                 for y in ('idProduct', 'idVendor', 'bcdDevice'):
                     if not os.access(j(usb_dir, y), os.R_OK):
                         usb_dir = None
-                        continue
-                e = lambda q : raw2num(open(j(usb_dir, q)).read())
+                        break
+                if usb_dir is None:
+                    continue
+                e = lambda q : raw2num(open(j(usb_dir, q), 'rb').read().decode('utf-8'))
                 ven, prod, bcd = map(e, ('idVendor', 'idProduct', 'bcdDevice'))
                 if not (test(ven, 'idVendor') and test(prod, 'idProduct') and
                         test(bcd, 'bcdDevice')):
@@ -496,7 +487,7 @@ class Device(DeviceConfig, DevicePlugin):
                     sz = j(x, 'size')
                     node = parts[idx+1]
                     try:
-                        exists = int(open(sz).read()) > 0
+                        exists = int(open(sz, 'rb').read().decode('utf-8')) > 0
                         if exists:
                             node = self.find_largest_partition(x)
                             ok[node] = True
@@ -530,13 +521,13 @@ class Device(DeviceConfig, DevicePlugin):
             if not os.access(sz, os.R_OK):
                 continue
             try:
-                sz = int(open(sz).read())
+                sz = int(open(sz, 'rb').read().decode('utf-8'))
             except:
                 continue
             if sz > 0:
                 nodes.append((x.split('/')[-1], sz))
 
-        nodes.sort(cmp=lambda x, y: cmp(x[1], y[1]))
+        nodes.sort(key=lambda x: x[1])
         if not nodes:
             return node
         return nodes[-1][0]
@@ -707,17 +698,10 @@ class Device(DeviceConfig, DevicePlugin):
                         except dbus.exceptions.DBusException as e:
                             print(e)
                             continue
-            except dbus.exceptions.DBusException as e:
+            except dbus.exceptions.DBusException:
                 continue
 
-        def ocmp(x,y):
-            if x['node'] < y['node']:
-                return -1
-            if x['node'] > y['node']:
-                return 1
-            return 0
-
-        vols.sort(cmp=ocmp)
+        vols.sort(key=lambda x: x['node'])
 
         if verbose:
             print("FBSD:	", vols)
@@ -833,7 +817,7 @@ class Device(DeviceConfig, DevicePlugin):
                     self.open_freebsd()
             if iswindows:
                 self.open_windows()
-            if isosx:
+            if ismacos:
                 try:
                     self.open_osx()
                 except DeviceError:
@@ -857,8 +841,7 @@ class Device(DeviceConfig, DevicePlugin):
                 drives.append(x[0].upper())
 
         def do_it(drives):
-            import win32process
-            subprocess.Popen([eject_exe()] + drives, creationflags=win32process.CREATE_NO_WINDOW).wait()
+            subprocess.Popen([eject_exe()] + drives, creationflags=subprocess.CREATE_NO_WINDOW).wait()
 
         t = Thread(target=do_it, args=[drives])
         t.daemon = True
@@ -905,7 +888,7 @@ class Device(DeviceConfig, DevicePlugin):
                 self.eject_windows()
             except:
                 pass
-        if isosx:
+        if ismacos:
             try:
                 self.eject_osx()
             except:
@@ -938,7 +921,7 @@ class Device(DeviceConfig, DevicePlugin):
         sanity_check(on_card, files, self.card_prefix(), self.free_space())
 
         def get_dest_dir(prefix, candidates):
-            if isinstance(candidates, basestring):
+            if isinstance(candidates, string_or_bytes):
                 candidates = [candidates]
             if not candidates:
                 candidates = ['']

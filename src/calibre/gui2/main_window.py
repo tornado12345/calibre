@@ -1,17 +1,17 @@
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
 
-import StringIO, traceback, sys, gc, weakref
+import sys, gc, weakref
 
 from PyQt5.Qt import (QMainWindow, QTimer, QAction, QMenu, QMenuBar, QIcon,
                       QObject)
 from calibre.utils.config import OptionParser
 from calibre.gui2 import error_dialog
-from calibre import prints
+from calibre import prints, as_unicode, prepare_string_for_xml
+from polyglot.io import PolyglotStringIO
 
 
 def option_parser(usage='''\
@@ -129,24 +129,25 @@ class MainWindow(QMainWindow):
     def set_exception_handler(self):
         sys.excepthook = ExceptionHandler(self)
 
-    def unhandled_exception(self, type, value, tb):
-        if type is KeyboardInterrupt:
+    def unhandled_exception(self, exc_type, value, tb):
+        if exc_type is KeyboardInterrupt:
             return
+        import traceback
         try:
-            sio = StringIO.StringIO()
+            sio = PolyglotStringIO(errors='replace')
             try:
                 from calibre.debug import print_basic_debug_info
                 print_basic_debug_info(out=sio)
             except:
                 pass
-            traceback.print_exception(type, value, tb, file=sio)
+            traceback.print_exception(exc_type, value, tb, file=sio)
             if getattr(value, 'locking_debug_msg', None):
                 prints(value.locking_debug_msg, file=sio)
             fe = sio.getvalue()
-            prints(fe, file=sys.stderr)
-            msg = '<b>%s</b>:'%type.__name__ + unicode(str(value), 'utf8', 'replace')
+            msg = '<b>%s</b>:'%exc_type.__name__ + prepare_string_for_xml(as_unicode(value))
             error_dialog(self, _('Unhandled exception'), msg, det_msg=fe,
                     show=True)
+            prints(fe, file=sys.stderr)
         except BaseException:
             pass
         except:

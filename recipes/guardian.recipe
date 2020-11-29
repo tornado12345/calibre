@@ -1,4 +1,4 @@
-#!/usr/bin/env  python2
+#!/usr/bin/env python
 __license__ = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -9,6 +9,12 @@ www.guardian.co.uk
 from calibre import random_user_agent
 from calibre.web.feeds.news import BasicNewsRecipe
 from datetime import date
+
+
+def classes(classes):
+    q = frozenset(classes.split(' '))
+    return dict(attrs={
+        'class': lambda x: x and frozenset(x.split()).intersection(q)})
 
 
 class Guardian(BasicNewsRecipe):
@@ -47,6 +53,7 @@ class Guardian(BasicNewsRecipe):
         dict(attrs={'data-link-name': 'block share'}),
         dict(attrs={'class': lambda x: x and 'inline-expand-image' in x}),
         dict(attrs={'class': lambda x: x and 'modern-visible' in x.split()}),
+        classes('badge-slot reveal-caption__checkbox mobile-only element-rich-link'),
         dict(name=['link', 'meta', 'style']),
     ]
     remove_tags_after = [
@@ -67,7 +74,7 @@ class Guardian(BasicNewsRecipe):
     def preprocess_raw_html(self, raw, url):
         import html5lib
         from lxml import html
-        return html.tostring(html5lib.parse(raw, namespaceHTMLElements=False, treebuilder='lxml'), encoding=unicode)
+        return html.tostring(html5lib.parse(raw, namespaceHTMLElements=False, treebuilder='lxml'), encoding='unicode')
 
     def preprocess_html(self, soup):
         for img in soup.findAll('img', srcset=True):

@@ -1,5 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -16,6 +17,9 @@ from PyQt5.Qt import (
 )
 
 from calibre.gui2 import error_dialog
+from calibre.gui2.dialogs.template_line_editor import TemplateLineEditor
+from calibre.utils.date import parse_date, UNDEFINED_DATE
+from polyglot.builtins import iteritems, unicode_type, range, map
 
 
 class CreateCustomColumn(QDialog):
@@ -85,7 +89,7 @@ class CreateCustomColumn(QDialog):
             'is_multiple':True
         },
     )))
-    column_types_map = {k['datatype']:idx for idx, k in column_types.iteritems()}
+    column_types_map = {k['datatype']:idx for idx, k in iteritems(column_types)}
 
     def __init__(self, parent, current_row, current_key, standard_colheads, standard_colnames):
         QDialog.__init__(self, parent)
@@ -112,9 +116,6 @@ class CreateCustomColumn(QDialog):
             self.column_type_box.addItem(self.column_types[t]['text'])
         self.column_type_box.currentIndexChanged.connect(self.datatype_changed)
 
-        all_colors = [unicode(s) for s in list(QColor.colorNames())]
-        self.enum_colors_label.setToolTip('<p>' + ', '.join(all_colors) + '</p>')
-
         if not self.editing_col:
             self.datatype_changed()
             self.exec_()
@@ -125,8 +126,7 @@ class CreateCustomColumn(QDialog):
         self.shortcuts.setVisible(False)
         idx = current_row
         if idx < 0:
-            self.simple_error(_('No column selected'),
-                    _('No column has been selected'))
+            self.simple_error(_('No column selected'), _('No column has been selected'))
             return
         col = current_key
         if col not in parent.custcols:
@@ -175,6 +175,24 @@ class CreateCustomColumn(QDialog):
             self.comments_type.setCurrentIndex(idx)
         elif ct == 'rating':
             self.allow_half_stars.setChecked(bool(c['display'].get('allow_half_stars', False)))
+
+        # Default values
+        dv = c['display'].get('default_value', None)
+        if dv is not None:
+            if ct == 'bool':
+                self.default_value.setText(_('Yes') if dv else _('No'))
+            elif ct == 'datetime':
+                self.default_value.setText(_('Now') if dv == 'now' else dv)
+            elif ct == 'rating':
+                if self.allow_half_stars.isChecked():
+                    self.default_value.setText(unicode_type(dv/2))
+                else:
+                    self.default_value.setText(unicode_type(dv//2))
+            elif ct in ('int', 'float'):
+                self.default_value.setText(unicode_type(dv))
+            elif ct not in ('composite', '*composite'):
+                self.default_value.setText(dv)
+
         self.datatype_changed()
         if ct in ['text', 'composite', 'enumeration']:
             self.use_decorations.setChecked(c['display'].get('use_decorations', False))
@@ -182,10 +200,12 @@ class CreateCustomColumn(QDialog):
             self.is_names.setChecked(c['display'].get('is_names', False))
         self.description_box.setText(c['display'].get('description', ''))
 
+        all_colors = [unicode_type(s) for s in list(QColor.colorNames())]
+        self.enum_colors_label.setToolTip('<p>' + ', '.join(all_colors) + '</p>')
         self.exec_()
 
     def shortcut_activated(self, url):  # {{{
-        which = unicode(url).split(':')[-1]
+        which = unicode_type(url).split(':')[-1]
         self.column_type_box.setCurrentIndex({
             'yesno': self.column_types_map['bool'],
             'tags' : self.column_types_map['*text'],
@@ -230,7 +250,7 @@ class CreateCustomColumn(QDialog):
         text = '<p>'+_('Quick create:')
         for col, name in [('isbn', _('ISBN')), ('formats', _('Formats')),
                 ('yesno', _('Yes/No')),
-                ('tags', _('Tags')), ('series', _('Series')), ('rating',
+                ('tags', _('Tags')), ('series', ngettext('Series', 'Series', 1)), ('rating',
                     _('Rating')), ('people', _("Names")), ('text', _('Short text'))]:
             text += ' <a href="col:%s">%s</a>,'%(col, name)
         text = text[:-1]
@@ -306,7 +326,7 @@ class CreateCustomColumn(QDialog):
         self.format_label = add_row('', h)
 
         # Template
-        self.composite_box = cb = QLineEdit(self)
+        self.composite_box = cb = TemplateLineEditor(self)
         self.composite_default_label = cdl = QLabel(_("Default: (nothing)"))
         cb.setToolTip(_("Field template. Uses the same syntax as save templates."))
         cdl.setToolTip(_("Similar to save templates. For example, %s") % "{title} {isbn}")
@@ -340,26 +360,20 @@ class CreateCustomColumn(QDialog):
         self.comments_type_label = add_row(_('Interpret this column as:') + ' ', ct)
 
         # Values for enum type
-        l = QGridLayout()
         self.enum_box = eb = QLineEdit(self)
         eb.setToolTip(_(
             "A comma-separated list of permitted values. The empty value is always\n"
             "included, and is the default. For example, the list 'one,two,three' has\n"
             "four values, the first of them being the empty value."))
-        self.enum_default_label = la = QLabel(_("Values"))
-        la.setBuddy(eb)
-        l.addWidget(eb), l.addWidget(la, 0, 1)
+        self.enum_default_label = add_row(_("&Values"), eb)
         self.enum_colors = ec = QLineEdit(self)
         ec.setToolTip(_("A list of color names to use when displaying an item. The\n"
             "list must be empty or contain a color for each value."))
-        self.enum_colors_label = la = QLabel(_('Colors'))
-        la.setBuddy(ec)
-        l.addWidget(ec), l.addWidget(la, 1, 1)
-        self.enum_label = add_row(_('&Values'), l)
+        self.enum_colors_label = add_row(_('Colors'), ec)
 
         # Rating allow half stars
         self.allow_half_stars = ahs = QCheckBox(_('Allow half stars'))
-        ahs.setToolTip(_('Allow half star ratings, for example: ') + '<span style="font-family:calibre Symbols">★★★½</span>')
+        ahs.setToolTip(_('Allow half star ratings, for example: ') + '★★★⯨')
         add_row(None, ahs)
 
         # Composite display properties
@@ -387,6 +401,15 @@ class CreateCustomColumn(QDialog):
             'will generate a link to the book on the Beam e-books site.') + '</p>')
         l.addWidget(cch)
         add_row(None, l)
+
+        # Default value
+        self.default_value = dv = QLineEdit(self)
+        dv.setToolTip('<p>' + _('Default value when a new book is added to the '
+            'library. For Date columns enter the word "Now", or the date as '
+            'yyyy-mm-dd. For Yes/No columns enter "Yes" or "No". For Text with '
+            'a fixed set of values enter one of the permitted values. For '
+            'Rating columns enter a number between 0 and 5.') + '</p>')
+        self.default_value_label = add_row(_('Default value'), dv)
 
         self.resize(self.sizeHint())
     # }}}
@@ -452,8 +475,10 @@ class CreateCustomColumn(QDialog):
         for x in ('box', 'default_label', 'label', 'sort_by', 'sort_by_label',
                   'make_category', 'contains_html'):
             getattr(self, 'composite_'+x).setVisible(col_type in ['composite', '*composite'])
-        for x in ('box', 'default_label', 'label', 'colors', 'colors_label'):
+        for x in ('box', 'default_label',  'colors', 'colors_label'):
             getattr(self, 'enum_'+x).setVisible(col_type == 'enumeration')
+        for x in ('value_label', 'value'):
+            getattr(self, 'default_'+x).setVisible(col_type not in ['composite', '*composite'])
         self.use_decorations.setVisible(col_type in ['text', 'composite', 'enumeration'])
         self.is_names.setVisible(col_type == '*text')
         is_comments = col_type == 'comments'
@@ -464,7 +489,7 @@ class CreateCustomColumn(QDialog):
         self.allow_half_stars.setVisible(col_type == 'rating')
 
     def accept(self):
-        col = unicode(self.column_name_box.text()).strip()
+        col = unicode_type(self.column_name_box.text()).strip()
         if not col:
             return self.simple_error('', _('No lookup name was provided'))
         if col.startswith('#'):
@@ -475,7 +500,7 @@ class CreateCustomColumn(QDialog):
         if col.endswith('_index'):
             return self.simple_error('', _('Lookup names cannot end with _index, '
                     'because these names are reserved for the index of a series column.'))
-        col_heading = unicode(self.column_heading_box.text()).strip()
+        col_heading = unicode_type(self.column_heading_box.text()).strip()
         coldef = self.column_types[self.column_type_box.currentIndex()]
         col_type = coldef['datatype']
         if col_type[0] == '*':
@@ -510,60 +535,115 @@ class CreateCustomColumn(QDialog):
 
         display_dict = {}
 
+        default_val = (unicode_type(self.default_value.text()).strip()
+                        if col_type != 'composite' else None)
+
         if col_type == 'datetime':
-            if unicode(self.format_box.text()).strip():
-                display_dict = {'date_format':unicode(self.format_box.text()).strip()}
+            if unicode_type(self.format_box.text()).strip():
+                display_dict = {'date_format':unicode_type(self.format_box.text()).strip()}
             else:
                 display_dict = {'date_format': None}
+            if default_val:
+                if default_val == _('Now'):
+                    display_dict['default_value'] = 'now'
+                else:
+                    try:
+                        tv = parse_date(default_val)
+                    except:
+                        tv = UNDEFINED_DATE
+                    if tv == UNDEFINED_DATE:
+                        return self.simple_error(_('Invalid default value'),
+                                 _('The default value must be "Now" or a date'))
+                    display_dict['default_value'] = default_val
         elif col_type == 'composite':
-            if not unicode(self.composite_box.text()).strip():
-                return self.simple_error('', _('You must enter a template for'
-                    ' composite columns'))
-            display_dict = {'composite_template':unicode(self.composite_box.text()).strip(),
+            if not unicode_type(self.composite_box.text()).strip():
+                return self.simple_error('', _('You must enter a template for '
+                           'composite columns'))
+            display_dict = {'composite_template':unicode_type(self.composite_box.text()).strip(),
                             'composite_sort': ['text', 'number', 'date', 'bool']
                                         [self.composite_sort_by.currentIndex()],
                             'make_category': self.composite_make_category.isChecked(),
                             'contains_html': self.composite_contains_html.isChecked(),
                         }
         elif col_type == 'enumeration':
-            if not unicode(self.enum_box.text()).strip():
-                return self.simple_error('', _('You must enter at least one'
-                    ' value for enumeration columns'))
-            l = [v.strip() for v in unicode(self.enum_box.text()).split(',') if v.strip()]
+            if not unicode_type(self.enum_box.text()).strip():
+                return self.simple_error('', _('You must enter at least one '
+                            'value for enumeration columns'))
+            l = [v.strip() for v in unicode_type(self.enum_box.text()).split(',') if v.strip()]
             l_lower = [v.lower() for v in l]
             for i,v in enumerate(l_lower):
                 if v in l_lower[i+1:]:
                     return self.simple_error('', _('The value "{0}" is in the '
                     'list more than once, perhaps with different case').format(l[i]))
-            c = unicode(self.enum_colors.text())
+            c = unicode_type(self.enum_colors.text())
             if c:
-                c = [v.strip() for v in unicode(self.enum_colors.text()).split(',')]
+                c = [v.strip() for v in unicode_type(self.enum_colors.text()).split(',')]
             else:
                 c = []
             if len(c) != 0 and len(c) != len(l):
                 return self.simple_error('', _('The colors box must be empty or '
-                'contain the same number of items as the value box'))
+                           'contain the same number of items as the value box'))
             for tc in c:
                 if tc not in QColor.colorNames() and not re.match("#(?:[0-9a-f]{3}){1,4}",tc,re.I):
-                    return self.simple_error('',
-                            _('The color {0} is unknown').format(tc))
-
+                    return self.simple_error('', _('The color {0} is unknown').format(tc))
             display_dict = {'enum_values': l, 'enum_colors': c}
+            if default_val:
+                if default_val not in l:
+                    return self.simple_error(_('Invalid default value'),
+                             _('The default value must be one of the permitted values'))
+                display_dict['default_value'] = default_val
         elif col_type == 'text' and is_multiple:
             display_dict = {'is_names': self.is_names.isChecked()}
         elif col_type in ['int', 'float']:
-            if unicode(self.format_box.text()).strip():
-                display_dict = {'number_format':unicode(self.format_box.text()).strip()}
+            if unicode_type(self.format_box.text()).strip():
+                display_dict = {'number_format':unicode_type(self.format_box.text()).strip()}
             else:
                 display_dict = {'number_format': None}
+            if default_val:
+                try:
+                    if col_type == 'int':
+                        msg = _('The default value must be an integer')
+                        tv = int(default_val)
+                        display_dict['default_value'] = tv
+                    else:
+                        msg = _('The default value must be a real number')
+                        tv = float(default_val)
+                        display_dict['default_value'] = tv
+                except:
+                    return self.simple_error(_('Invalid default value'), msg)
         elif col_type == 'comments':
-            display_dict['heading_position'] = type(u'')(self.comments_heading_position.currentData())
-            display_dict['interpret_as'] = type(u'')(self.comments_type.currentData())
+            display_dict['heading_position'] = unicode_type(self.comments_heading_position.currentData())
+            display_dict['interpret_as'] = unicode_type(self.comments_type.currentData())
         elif col_type == 'rating':
-            display_dict['allow_half_stars'] = bool(self.allow_half_stars.isChecked())
+            half_stars = bool(self.allow_half_stars.isChecked())
+            display_dict['allow_half_stars'] = half_stars
+            if default_val:
+                try:
+                    tv = int((float(default_val) if half_stars else int(default_val)) * 2)
+                except:
+                    tv = -1
+                if tv < 0 or tv > 10:
+                    if half_stars:
+                        return self.simple_error(_('Invalid default value'),
+                             _('The default value must be a real number between 0 and 5.0'))
+                    else:
+                        return self.simple_error(_('Invalid default value'),
+                             _('The default value must be an integer between 0 and 5'))
+                display_dict['default_value'] = tv
+        elif col_type == 'bool':
+            if default_val:
+                tv = {_('Yes'): True, _('No'): False}.get(default_val, None)
+                if tv is None:
+                    return self.simple_error(_('Invalid default value'),
+                             _('The default value must be "Yes" or "No"'))
+                display_dict['default_value'] = tv
 
         if col_type in ['text', 'composite', 'enumeration'] and not is_multiple:
             display_dict['use_decorations'] = self.use_decorations.checkState()
+
+        if default_val and 'default_value' not in display_dict:
+            display_dict['default_value'] = default_val
+
         display_dict['description'] = self.description_box.text().strip()
 
         if not self.editing_col:
@@ -580,6 +660,8 @@ class CreateCustomColumn(QDialog):
         else:
             self.parent.custcols[self.orig_column_name]['label'] = col
             self.parent.custcols[self.orig_column_name]['name'] = col_heading
+            # Remove any previous default value
+            self.parent.custcols[self.orig_column_name]['display'].pop('default_value', None)
             self.parent.custcols[self.orig_column_name]['display'].update(display_dict)
             self.parent.custcols[self.orig_column_name]['*edited'] = True
             self.parent.custcols[self.orig_column_name]['*must_restart'] = True

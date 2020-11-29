@@ -1,5 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -19,12 +20,13 @@ from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.gui2.dialogs.progress import ProgressDialog
 from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.utils.config_base import tweaks
-from calibre.utils.filenames import ascii_filename
+from calibre.utils.filenames import ascii_filename, make_long_path_useable
 from calibre.utils.icu import sort_key
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import question_dialog
 from calibre.ebooks.metadata import MetaInformation
 from calibre.ptempfile import PersistentTemporaryFile
+from polyglot.builtins import iteritems, string_or_bytes, range
 
 
 def get_filters():
@@ -56,21 +58,8 @@ class AddAction(InterfaceAction):
         self._add_filesystem_book = self.Dispatcher(self.__add_filesystem_book)
         self.add_menu = self.qaction.menu()
         ma = partial(self.create_menu_action, self.add_menu)
-        ma('recursive-single', _('Add books from directories, including '
-            'sub-directories (One book per directory, assumes every e-book '
-            'file is the same book in a different format)')).triggered.connect(
-            self.add_recursive_single)
-        ma('recursive-multiple', _('Add books from directories, including '
-            'sub-directories (Multiple books per directory, assumes every '
-            'e-book file is a different book)')).triggered.connect(
-                    self.add_recursive_multiple)
-        arm = self.add_archive_menu = self.add_menu.addMenu(_('Add multiple books from archive (ZIP/RAR)'))
-        connect_lambda(self.create_menu_action(
-            arm, 'recursive-single-archive', _('One book per directory in the archive')).triggered,
-            self, lambda self: self.add_archive(True))
-        connect_lambda(self.create_menu_action(
-            arm, 'recursive-multiple-archive', _('Multiple books per directory in the archive')).triggered,
-            self, lambda self: self.add_archive(False))
+        ma('recursive-add', _('Add from directories and sub-directories')).triggered.connect(self.add_recursive_question)
+        ma('archive-add-book', _('Add multiple books from archive (ZIP/RAR)')).triggered.connect(self.add_from_archive)
         self.add_menu.addSeparator()
         ma('add-empty', _('Add empty book (Book entry with no formats)'),
                 shortcut='Shift+Ctrl+E').triggered.connect(self.add_empty)
@@ -80,16 +69,11 @@ class AddAction(InterfaceAction):
                 triggered=self.add_formats, shortcut='Shift+A')
         ma('add-formats-clipboard', _('Add files to selected book records from clipboard'),
                 triggered=self.add_formats_from_clipboard, shortcut='Shift+Alt+A')
-        arm = self.add_archive_menu = self.add_menu.addMenu(_('Add an empty file to selected book records'))
-        from calibre.ebooks.oeb.polish.create import valid_empty_formats
-        for fmt in sorted(valid_empty_formats):
-            ac = self.create_menu_action(arm, 'add-empty-' + fmt, _('Add empty {}').format(fmt.upper()))
-            ac.setObjectName(fmt)
-            connect_lambda(ac.triggered, self, lambda self: self.add_empty_format(self.gui.sender().objectName()))
+        ma('add-empty-format-to-books', _(
+            'Add an empty file to selected book records')).triggered.connect(self.add_empty_format_choose)
         self.add_menu.addSeparator()
         ma('add-config', _('Control the adding of books'),
                 triggered=self.add_config)
-
         self.qaction.triggered.connect(self.add_books)
 
     def location_selected(self, loc):
@@ -126,7 +110,7 @@ class AddAction(InterfaceAction):
                     path = url.toLocalFile()
                     if os.access(path, os.R_OK):
                         mt = guess_type(path)[0]
-                        if mt.startswith('image/'):
+                        if mt and mt.startswith('image/'):
                             images.append(path)
                         else:
                             files_to_add.append(path)
@@ -167,6 +151,7 @@ class AddAction(InterfaceAction):
                   ' files to all %d books? If the format'
                   ' already exists for a book, it will be replaced.')%len(ids)):
             return
+        paths = list(map(make_long_path_useable, paths))
 
         db = self.gui.current_db
         if len(ids) == 1:
@@ -187,7 +172,7 @@ class AddAction(InterfaceAction):
         fmt_map = {os.path.splitext(fpath)[1][1:].upper():fpath for fpath in paths}
 
         for id_ in ids:
-            for fmt, fpath in fmt_map.iteritems():
+            for fmt, fpath in iteritems(fmt_map):
                 if fmt:
                     db.add_format_with_hooks(id_, fmt, fpath, index_is_id=True,
                         notify=True)
@@ -195,7 +180,7 @@ class AddAction(InterfaceAction):
         if current_idx.isValid():
             self.gui.library_view.model().current_changed(current_idx, current_idx)
 
-    def add_empty_format(self, format_):
+    def is_ok_to_add_empty_formats(self):
         if self.gui.stack.currentIndex() != 0:
             return
         view = self.gui.library_view
@@ -213,7 +198,27 @@ class AddAction(InterfaceAction):
                   ' empty file to all %d books? If the format'
                   ' already exists for a book, it will be replaced.')%len(ids)):
             return
+        return True
 
+    def add_empty_format_choose(self):
+        if not self.is_ok_to_add_empty_formats():
+            return
+        from calibre.ebooks.oeb.polish.create import valid_empty_formats
+        from calibre.gui2.dialogs.choose_format import ChooseFormatDialog
+        d = ChooseFormatDialog(self.gui, _('Choose format of empty file'), sorted(valid_empty_formats))
+        if d.exec_() != d.Accepted or not d.format():
+            return
+        self._add_empty_format(d.format())
+
+    def add_empty_format(self, format_):
+        if not self.is_ok_to_add_empty_formats():
+            return
+        self._add_empty_format(format_)
+
+    def _add_empty_format(self, format_):
+        view = self.gui.library_view
+        rows = view.selectionModel().selectedRows()
+        ids = [view.model().id(r) for r in rows]
         db = self.gui.library_view.model().db
         if len(ids) == 1:
             formats = db.formats(ids[0], index_is_id=True)
@@ -221,29 +226,42 @@ class AddAction(InterfaceAction):
                 formats = {x.lower() for x in formats.split(',')}
                 if format_ in formats:
                     title = db.title(ids[0], index_is_id=True)
-                    msg = _('The {0} format will be replaced in the book {1}. Are you sure?').format(
+                    msg = _('The {0} format will be replaced in the book: {1}. Are you sure?').format(
                         format_, title)
                     if not confirm(msg, 'confirm_format_override_on_add', title=_('Are you sure?'),
                                    parent=self.gui):
                         return
 
         for id_ in ids:
-            from calibre.ebooks.oeb.polish.create import create_book
-            pt = PersistentTemporaryFile(suffix='.' + format_)
-            pt.close()
-            try:
-                mi = db.new_api.get_metadata(id_, get_cover=False,
-                                    get_user_categories=False, cover_as_data=False)
-                create_book(mi, pt.name, fmt=format_)
-                db.add_format_with_hooks(id_, format_, pt.name, index_is_id=True, notify=True)
-            finally:
-                os.remove(pt.name)
+            self.add_empty_format_to_book(id_, format_)
 
         current_idx = self.gui.library_view.currentIndex()
         if current_idx.isValid():
             view.model().current_changed(current_idx, current_idx)
 
+    def add_empty_format_to_book(self, book_id, fmt):
+        from calibre.ebooks.oeb.polish.create import create_book
+        db = self.gui.current_db
+        pt = PersistentTemporaryFile(suffix='.' + fmt.lower())
+        pt.close()
+        try:
+            mi = db.new_api.get_metadata(book_id, get_cover=False,
+                                get_user_categories=False, cover_as_data=False)
+            create_book(mi, pt.name, fmt=fmt.lower())
+            db.add_format_with_hooks(book_id, fmt, pt.name, index_is_id=True, notify=True)
+        finally:
+            os.remove(pt.name)
+
     def add_archive(self, single):
+        paths = choose_files(
+            self.gui, 'recursive-archive-add', _('Choose archive file'),
+            filters=[(_('Archives'), ('zip', 'rar'))], all_files=False, select_only_single_file=False)
+        if paths:
+            self.do_add_recursive(paths, single, list_of_archives=True)
+
+    def add_from_archive(self):
+        single = question_dialog(self.gui, _('Type of archive'), _(
+            'Will the archive have a single book per internal directory?'))
         paths = choose_files(
             self.gui, 'recursive-archive-add', _('Choose archive file'),
             filters=[(_('Archives'), ('zip', 'rar'))], all_files=False, select_only_single_file=False)
@@ -280,6 +298,11 @@ class AddAction(InterfaceAction):
         '''
         self.add_recursive(False)
 
+    def add_recursive_question(self):
+        single =  question_dialog(self.gui, _('Multi-file books?'), _(
+            'Assume all e-book files in a single directory are the same book in different formats?'))
+        self.add_recursive(single)
+
     def add_empty(self, *args):
         '''
         Add an empty book item to the library. This does not import any formats
@@ -310,7 +333,7 @@ class AddAction(InterfaceAction):
                     book_id = db.id(index.row())
                     orig_fmts = tuple(db.new_api.format(book_id, fmt, as_path=True) for fmt in db.new_api.formats(book_id))
 
-            for x in xrange(num):
+            for x in range(num):
                 if dlg.duplicate_current_book:
                     mi = origmi
                 else:
@@ -330,7 +353,8 @@ class AddAction(InterfaceAction):
                     create_book(mi, pt.name, fmt=empty_format)
                     fmts = [pt.name]
                 ids.append(db.import_book(mi, fmts))
-            tuple(map(os.remove, orig_fmts))
+            for path in orig_fmts:
+                os.remove(path)
             self.refresh_gui(num)
             if ids:
                 ids.reverse()
@@ -436,7 +460,7 @@ class AddAction(InterfaceAction):
             self.gui.refresh_cover_browser()
 
     def __add_filesystem_book(self, paths, allow_device=True):
-        if isinstance(paths, basestring):
+        if isinstance(paths, string_or_bytes):
             paths = [paths]
         books = [path for path in map(os.path.abspath, paths) if os.access(path,
             os.R_OK)]
@@ -591,7 +615,7 @@ class AddAction(InterfaceAction):
             self.gui.device_job_exception(job)
             return
         paths = job.result
-        ok_paths = [x for x in paths if isinstance(x, basestring)]
+        ok_paths = [x for x in paths if isinstance(x, string_or_bytes)]
         failed_paths = [x for x in paths if isinstance(x, tuple)]
         if failed_paths:
             if not ok_paths:

@@ -100,7 +100,7 @@ if language not in {'en', 'eng'}:
     except IOError:
         pass
     else:
-        title = t.ugettext(title)
+        title = t.gettext(title)
 
 # If true, '()' will be appended to :func: etc. cross-reference text.
 # add_function_parentheses = True
@@ -148,6 +148,7 @@ html_favicon = '../icons/favicon.ico'
 # relative to this directory. They are copied after the built-in static files,
 # so a file named "default.css" will overwrite the built-in "default.css".
 html_static_path = ['resources', '../icons/favicon.ico']
+html_css_files = ['custom.css']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
@@ -168,7 +169,7 @@ def sort_languages(x):
     lc, name = x
     if lc == language:
         return ''
-    return sort_key(unicode(name))
+    return sort_key(type(u'')(name))
 
 
 html_context['other_languages'].sort(key=sort_languages)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+
 
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
@@ -9,6 +9,7 @@ import os
 
 from calibre import _ent_pat, walk, xml_entity_to_unicode
 from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
+from polyglot.builtins import getcwd
 
 MD_EXTENSIONS = {
     'abbr': _('Abbreviations'),
@@ -94,12 +95,14 @@ class TXTInput(InputFormatPlugin):
                    ).format('https://python-markdown.github.io/extensions/') + '\n'.join('* %s: %s' % (k, MD_EXTENSIONS[k]) for k in sorted(MD_EXTENSIONS))),
     }
 
-    def shift_file(self, base_dir, fname, data):
+    def shift_file(self, fname, data):
         name, ext = os.path.splitext(fname)
-        c = 1
-        while os.path.exists(os.path.join(base_dir, '{}-{}{}'.format(name, c, ext))):
+        candidate = os.path.join(self.output_dir, fname)
+        c = 0
+        while os.path.exists(candidate):
             c += 1
-        ans = os.path.join(base_dir, '{}-{}{}'.format(name, c, ext))
+            candidate = os.path.join(self.output_dir, '{}-{}{}'.format(name, c, ext))
+        ans = candidate
         with open(ans, 'wb') as f:
             f.write(data)
         return f.name
@@ -116,7 +119,7 @@ class TXTInput(InputFormatPlugin):
                 if os.access(src, os.R_OK):
                     with open(src, 'rb') as f:
                         data = f.read()
-                    f = self.shift_file(base_dir, os.path.basename(src), data)
+                    f = self.shift_file(os.path.basename(src), data)
                     changed = True
                     img.set('src', os.path.basename(f))
         if changed:
@@ -137,10 +140,10 @@ class TXTInput(InputFormatPlugin):
                 block_to_single_line, separate_hard_scene_breaks)
 
         self.log = log
-        txt = ''
+        txt = b''
         log.debug('Reading text from file...')
         length = 0
-        base_dir = os.getcwdu()
+        base_dir = self.output_dir = getcwd()
 
         # Extract content from zip archive.
         if file_ext == 'txtz':
@@ -150,7 +153,7 @@ class TXTInput(InputFormatPlugin):
             for x in walk('.'):
                 if os.path.splitext(x)[1].lower() in ('.txt', '.text'):
                     with open(x, 'rb') as tf:
-                        txt += tf.read() + '\n\n'
+                        txt += tf.read() + b'\n\n'
         else:
             if getattr(stream, 'name', None):
                 base_dir = os.path.dirname(stream.name)
@@ -277,7 +280,7 @@ class TXTInput(InputFormatPlugin):
             for opt in html_input.options:
                 setattr(options, opt.option.name, opt.recommended_value)
             options.input_encoding = 'utf-8'
-            htmlfile = self.shift_file(base_dir, 'index.html', html.encode('utf-8'))
+            htmlfile = self.shift_file('index.html', html.encode('utf-8'))
             odi = options.debug_pipeline
             options.debug_pipeline = None
             # Generate oeb from html conversion.

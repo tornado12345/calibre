@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import os
 import shutil
@@ -13,12 +12,13 @@ import time
 import unittest
 from threading import Thread
 
-from calibre.constants import cache_dir, fcntl, iswindows
+from calibre.constants import cache_dir, iswindows
 from calibre.utils.lock import ExclusiveFile, create_single_instance_mutex, unix_open
 from calibre.utils.tdir_in_cache import (
     clean_tdirs_in, is_tdir_locked, retry_lock_tdir, tdir_in_cache, tdirs_in,
     unlock_file
 )
+from polyglot.builtins import iteritems, getcwd, native_string_type
 
 
 def FastFailEF(name):
@@ -50,10 +50,9 @@ def run_worker(mod, func, **kw):
     env = kw.get('env', os.environ.copy())
     env['CALIBRE_SIMPLE_WORKER'] = mod + ':' + func
     if iswindows:
-        import win32process
-        kw['creationflags'] = win32process.CREATE_NO_WINDOW
-    kw['env'] = {str(k): str(v)
-                 for k, v in env.iteritems()}  # windows needs bytes in env
+        kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+    kw['env'] = {native_string_type(k): native_string_type(v)
+                 for k, v in iteritems(env)}  # windows needs bytes in env
     return subprocess.Popen(exe, **kw)
 
 
@@ -85,6 +84,7 @@ class IPCLockTest(unittest.TestCase):
             t.start(), t.join()
             self.assertIs(t.locked, False)
         if not iswindows:
+            import fcntl
             with unix_open(fname) as f:
                 self.assertEqual(
                     1, fcntl.fcntl(f.fileno(), fcntl.F_GETFD) & fcntl.FD_CLOEXEC
@@ -176,13 +176,13 @@ def other3():
 
 
 def other4():
-    cache_dir.ans = os.getcwdu()
+    cache_dir.ans = getcwd()
     tdir_in_cache('t')
     time.sleep(30)
 
 
 def other5():
-    cache_dir.ans = os.getcwdu()
+    cache_dir.ans = getcwd()
     if not os.path.isdir(tdir_in_cache('t')):
         raise SystemExit(1)
 
@@ -191,6 +191,10 @@ def find_tests():
     return unittest.defaultTestLoader.loadTestsFromTestCase(IPCLockTest)
 
 
+def run_tests():
+    from calibre.utils.run_tests import run_tests
+    run_tests(find_tests)
+
+
 if __name__ == '__main__':
-    suite = find_tests()
-    unittest.TextTestRunner(verbosity=4).run(suite)
+    run_tests()
